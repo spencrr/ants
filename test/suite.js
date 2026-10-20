@@ -64,9 +64,11 @@ function writeProfile(credentials) {
 			created_by: 'claude-code',
 		}),
 	);
+	// Owner-only, like the real sign-in writes it; on Linux and macOS the SDK refuses anything looser.
 	fs.writeFileSync(
 		credentialsFile,
 		JSON.stringify({ version: '1.0', type: 'oauth_token', scope: 'user:inference user:profile', ...credentials }),
+		{ mode: 0o600 },
 	);
 }
 
