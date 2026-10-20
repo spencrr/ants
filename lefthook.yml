@@ -1,0 +1,13 @@
+# Git hooks (installed by `npm ci` through the `prepare` script; re-run `npx lefthook install` after cloning
+# with --ignore-scripts). Skip once with `LEFTHOOK=0 git commit`.
+pre-commit:
+  jobs:
+    - name: biome
+      # Lint, format and import order on the staged files only; fixes are written and re-staged.
+      run: npx biome check --staged --no-errors-on-unmatched --write
+      stage_fixed: true
+
+pre-push:
+  jobs:
+    - name: typecheck
+      run: npm run typecheck

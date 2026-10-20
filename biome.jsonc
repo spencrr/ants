@@ -1,0 +1,173 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    // The proposed-API typings come from `npm run proposed-api` verbatim; the lockfile is npm's.
+    "includes": ["**", "!vscode.proposed.*.d.ts", "!package-lock.json"]
+  },
+  "formatter": {
+    "indentStyle": "tab",
+    "indentWidth": 4,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all",
+      "arrowParentheses": "asNeeded"
+    }
+  },
+  "json": {
+    "formatter": {
+      "indentStyle": "space",
+      "indentWidth": 2
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "domains": {
+      "project": "all",
+      "test": "all",
+      // No framework in this code base: the webview is a page of plain DOM and SVG.
+      "astro": "none",
+      "drizzle": "none",
+      "next": "none",
+      "playwright": "none",
+      "qwik": "none",
+      "react": "none",
+      "reactNative": "none",
+      "solid": "none",
+      "svelte": "none",
+      "tailwind": "none",
+      "turborepo": "none",
+      "vue": "none"
+    },
+    // Every stable group is fully on. A rule is switched off here only when it is wrong for this project or
+    // enforces a preference the code does not share; each gets a reason. Inline suppressions are allowed per
+    // file, with a reason.
+    "rules": {
+      "preset": "recommended",
+      "a11y": "on",
+      "complexity": {
+        "preset": "all",
+        // Function size and complexity are judged in review.
+        "noExcessiveCognitiveComplexity": "off",
+        "noExcessiveLinesPerFunction": "off",
+        // Positional parameters are fine for the few internal helpers that take more than four.
+        "useMaxParams": "off",
+        // `void promise` is the explicit mark for an intentionally un-awaited promise.
+        "noVoid": "off"
+      },
+      "correctness": {
+        "preset": "all",
+        // Node code base: builtins and `process` are fine.
+        "noNodejsModules": "off",
+        "noProcessGlobal": "off",
+        // `vscode` is provided by the editor host (engines.vscode + @types/vscode). tsc catches a missing
+        // dependency.
+        "noUndeclaredDependencies": "off",
+        "noUnresolvedImports": "off",
+        // node16 resolution: `.ts` sources are imported with the `.js` suffix they compile to.
+        "useImportExtensions": { "level": "on", "options": { "extensionMappings": { "ts": "js" } } }
+      },
+      "performance": {
+        "preset": "all",
+        // Sequential awaits are intentional: the retry waits for the first attempt, the test for each step.
+        "noAwaitInLoops": "off",
+        // `import * as fs from 'node:fs'` is the Node idiom; builtins are never tree-shaken anyway.
+        "noNamespaceImport": "off",
+        // Regex literals share their compiled form per call site; keeping them next to their use reads better.
+        "useTopLevelRegex": "off",
+        // The webview's one script is loaded by VS Code from a nonce-checked local URL; `defer` buys nothing.
+        "noSyncScripts": "off"
+      },
+      "security": {
+        "preset": "all",
+        // Entropy heuristic; it flags the one-pixel test images. No secret is stored in this repository.
+        "noSecrets": "off"
+      },
+      "suspicious": {
+        "preset": "all",
+        // stderr is the diagnostics channel; files whose job is to print (the test runner) opt in per file.
+        "noConsole": { "level": "on", "options": { "allow": ["error", "warn"] } },
+        // Without type information it misjudges nullable values.
+        "noUnnecessaryConditions": "off"
+      },
+      "style": {
+        "preset": "all",
+        // Opinion-only rules the code base does not follow.
+        "noContinue": "off",
+        "noExcessiveLinesPerFile": "off",
+        "noHexColors": "off",
+        "noIncrementDecrement": "off",
+        "noMagicNumbers": "off",
+        "noNestedTernary": "off",
+        "noParameterProperties": "off",
+        "noTernary": "off",
+        "useDestructuring": "off",
+        "useExportsLast": "off",
+        // TypeScript's exhaustiveness check over discriminated unions replaces `default` clauses.
+        "useDefaultSwitchClause": "off",
+        // `window` is the right name inside the webview; `globalThis` would hide that it is browser code.
+        "useGlobalThis": "off",
+        // The webview stylesheet is ordered by component, not by specificity.
+        "noDescendingSpecificity": "off",
+        // Environment access is deliberate and local: the test runner's knobs and the SDK's own variables.
+        "noProcessEnv": "off",
+        "useNamingConvention": {
+          "level": "on",
+          "options": {
+            // `URL`, `JSON`, ... are fine inside camel/Pascal case.
+            "strictCase": false,
+            "conventions": [
+              // Object literal properties mirror external schemas: the Anthropic Messages API, the
+              // OpenAI-style usage object VS Code reads, and Copilot's `_completeThinking` metadata key.
+              {
+                "selector": { "kind": "objectLiteralProperty" },
+                "match": "_?(.+)",
+                "formats": ["camelCase", "snake_case", "CONSTANT_CASE"]
+              }
+            ]
+          }
+        }
+      },
+      "nursery": "off"
+    }
+  },
+  "overrides": [
+    {
+      // Browser code for the usage panel: runs in the webview, where `acquireVsCodeApi` is a global.
+      "includes": ["media/**"],
+      "javascript": {
+        "globals": ["acquireVsCodeApi"]
+      }
+    },
+    {
+      // The suite is loaded by VS Code's extension host with `require`, so it has to stay CommonJS: no
+      // `import.meta` either, or Node starts treating the file as an ES module.
+      "includes": ["test/suite.js"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noGlobalDirnameFilename": "off"
+          },
+          "style": {
+            "noCommonJs": "off"
+          }
+        }
+      }
+    }
+  ]
+}

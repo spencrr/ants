@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Wait a week before proposing a freshly published version: compromised releases are usually caught within days.
+    cooldown:
+      default-days: 7
+    groups:
+      dev-tooling:
+        patterns: ["@biomejs/*", "typescript", "@types/*", "@vscode/*", "lefthook"]
+        # Majors of the tooling are taken deliberately, one at a time.
+        update-types: ["minor", "patch"]
+    ignore:
+      # @types/node tracks the lowest supported Node (engines.node), not the newest release.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # @types/vscode tracks engines.vscode, the oldest VS Code the extension supports.
+      - dependency-name: "@types/vscode"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]

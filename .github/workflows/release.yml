@@ -1,0 +1,57 @@
+name: Release
+
+# Cut a release with `node scripts/release.mjs <version>` and push the tag. This workflow checks that the tag matches
+# package.json, runs lint and typecheck, builds the VSIX and publishes a GitHub Release with the changelog section as
+# its notes. The tests already ran on the release commit through CI. Publishing to the Marketplace is a separate,
+# deliberate step (see the bottom of this file).
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and publish the GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Tag must match package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          v=$(node -p "require('./package.json').version")
+          if [ "$v" != "$tag" ]; then echo "::error file=package.json::version $v does not match tag $tag"; exit 1; fi
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Build the VSIX
+        run: |
+          mkdir -p artifacts
+          npm run package -- --out artifacts/
+          (cd artifacts && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - name: Release notes from the changelog
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          # The section for this version, without its heading.
+          awk -v v="$tag" '/^## \[/{p=index($0, "[" v "]")>0; if(p){next}} p && /^## /{exit} p' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
+          printf '\n\nInstall the VSIX from the Extensions view (**...** → **Install from VSIX...**). `SHA256SUMS.txt` lists its digest.\n' >> notes.md
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --title "Ants ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md \
+            --verify-tag
+
+  # Marketplace publishing is off while the repository is private. When it is time:
+  #   `npx vsce publish --packagePath artifacts/*.vsix` with VSCE_PAT. Note that vsce refuses to publish an extension
+  #   with enabledApiProposals, so the proposals would have to move behind a separate build first.

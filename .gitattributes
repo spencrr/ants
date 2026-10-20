@@ -1,0 +1,4 @@
+# LF in the repository and in every working tree; .editorconfig says the same to editors.
+* text=auto eol=lf
+*.png binary
+*.vsix binary
