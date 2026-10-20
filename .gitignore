@@ -1,0 +1,15 @@
+# Dependencies and build output
+node_modules/
+out/
+*.vsix
+
+# Tests: the downloaded VS Code and everything a run leaves behind
+.vscode-test/
+test/.scratch/
+
+# Upstream Go proxy, cloned for reference only
+.ref/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db

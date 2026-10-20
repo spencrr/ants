@@ -1,0 +1,100 @@
+{
+  "name": "ants",
+  "displayName": "Ants",
+  "description": "Claude in VS Code chat and Copilot agent sessions, through your Anthropic Console sign-in. No API key.",
+  "version": "0.1.0",
+  "publisher": "spencrr",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spencrr/ants.git"
+  },
+  "bugs": {
+    "url": "https://github.com/spencrr/ants/issues"
+  },
+  "homepage": "https://github.com/spencrr/ants#readme",
+  "pricing": "Free",
+  "keywords": [
+    "claude",
+    "anthropic",
+    "copilot",
+    "chat",
+    "language model"
+  ],
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "engines": {
+    "vscode": "^1.106.0",
+    "node": ">=22.13"
+  },
+  "extensionKind": [
+    "ui"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "enabledApiProposals": [
+    "chatProvider",
+    "languageModelThinkingPart"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguageModelChatProvider:ants",
+    "onCommand:ants.showUsage"
+  ],
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "ants",
+        "displayName": "Claude (Console)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "ants.showUsage",
+        "title": "Show Claude Usage",
+        "category": "Ants",
+        "icon": "$(graph)"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "npm run compile && node test/run.mjs",
+    "test:vsix": "node test/run.mjs --vsix",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "package": "vsce package",
+    "proposed-api": "vscode-dts dev 1.141.0",
+    "vscode:prepublish": "npm run compile",
+    "prepare": "lefthook install"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.137.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "^22.13.0",
+    "@types/vscode": "~1.106.0",
+    "@vscode/dts": "^0.4.1",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "lefthook": "^2.2.2",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "@vscode/vsce-sign": false,
+    "keytar": false,
+    "lefthook": false
+  }
+}

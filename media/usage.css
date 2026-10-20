@@ -1,0 +1,411 @@
+:root {
+	--gap: 12px;
+	--radius: 6px;
+	--border: var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+	--card: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+	--muted: var(--vscode-descriptionForeground);
+	--accent: var(--vscode-focusBorder, #007acc);
+	--c-input: var(--vscode-charts-blue, #3794ff);
+	--c-cache-read: var(--vscode-charts-green, #89d185);
+	--c-cache-write: var(--vscode-charts-yellow, #cca700);
+	--c-output: var(--vscode-charts-purple, #b180d7);
+	--c-bar: var(--vscode-charts-blue, #3794ff);
+	--c-bar-dim: color-mix(in srgb, var(--c-bar) 35%, transparent);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	padding: var(--gap) 16px 32px;
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-font-size);
+	color: var(--vscode-foreground);
+	background: var(--vscode-editor-background);
+}
+
+h1,
+h2 {
+	margin: 0;
+	font-weight: 600;
+}
+h1 {
+	font-size: 16px;
+}
+h2 {
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--muted);
+}
+
+header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--gap);
+	margin-bottom: var(--gap);
+}
+.title {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+}
+.subtitle {
+	color: var(--muted);
+}
+.toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--gap);
+	flex-wrap: wrap;
+}
+
+.segmented {
+	display: inline-flex;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	overflow: hidden;
+}
+.segmented button {
+	border: none;
+	background: transparent;
+	color: var(--vscode-foreground);
+	padding: 4px 10px;
+	cursor: pointer;
+	font: inherit;
+	border-right: 1px solid var(--border);
+}
+.segmented button:last-child {
+	border-right: none;
+}
+.segmented button:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+.segmented button.active {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+.segmented.small button {
+	padding: 2px 8px;
+	font-size: 11px;
+}
+
+button.link {
+	border: none;
+	background: none;
+	color: var(--vscode-textLink-foreground);
+	cursor: pointer;
+	font: inherit;
+	padding: 0;
+}
+button.link:hover {
+	text-decoration: underline;
+}
+
+.crumbs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	min-height: 22px;
+	margin-bottom: var(--gap);
+}
+.crumb {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+	font-size: 11px;
+}
+.crumb button {
+	border: none;
+	background: none;
+	color: inherit;
+	cursor: pointer;
+	padding: 0;
+	font-size: 12px;
+	line-height: 1;
+}
+.crumb-clear {
+	color: var(--vscode-textLink-foreground);
+	background: none;
+	border: none;
+	cursor: pointer;
+	font: inherit;
+	font-size: 11px;
+}
+
+.cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+	gap: var(--gap);
+	margin-bottom: var(--gap);
+}
+.card {
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 10px 12px;
+}
+.card .label {
+	color: var(--muted);
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+.card .value {
+	font-size: 20px;
+	font-weight: 600;
+	margin-top: 4px;
+	font-variant-numeric: tabular-nums;
+}
+.card .sub {
+	color: var(--muted);
+	font-size: 11px;
+	margin-top: 2px;
+}
+
+.panel {
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 10px 12px 12px;
+	margin-bottom: var(--gap);
+	min-width: 0;
+}
+.panel-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--gap);
+	margin-bottom: 8px;
+	flex-wrap: wrap;
+}
+.hint {
+	color: var(--muted);
+	font-size: 11px;
+}
+
+.split {
+	display: grid;
+	grid-template-columns: 3fr 2fr;
+	gap: var(--gap);
+}
+@media (max-width: 760px) {
+	.split {
+		grid-template-columns: 1fr;
+	}
+}
+
+.chart {
+	position: relative;
+	width: 100%;
+	height: 180px;
+	user-select: none;
+}
+.chart svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+}
+.chart rect.bar {
+	fill: var(--c-bar);
+	cursor: pointer;
+}
+.chart rect.bar:hover {
+	fill: var(--accent);
+}
+.chart rect.bar.dim {
+	fill: var(--c-bar-dim);
+}
+.chart .axis text {
+	fill: var(--muted);
+	font-size: 10px;
+}
+.chart .axis line,
+.chart .grid line {
+	stroke: var(--border);
+}
+.chart rect.brush {
+	fill: var(--accent);
+	fill-opacity: 0.15;
+	stroke: var(--accent);
+	stroke-width: 1;
+	pointer-events: none;
+}
+
+.tip {
+	position: fixed;
+	z-index: 10;
+	pointer-events: none;
+	background: var(--vscode-editorHoverWidget-background);
+	color: var(--vscode-editorHoverWidget-foreground);
+	border: 1px solid var(--vscode-editorHoverWidget-border);
+	border-radius: 4px;
+	padding: 6px 8px;
+	font-size: 11px;
+	white-space: nowrap;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.bars {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.bar-row {
+	display: grid;
+	grid-template-columns: minmax(70px, 1.2fr) 3fr auto;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+	padding: 2px 4px;
+	border-radius: 4px;
+}
+.bar-row:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+.bar-row .name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.bar-row .track {
+	height: 14px;
+	background: color-mix(in srgb, var(--border) 50%, transparent);
+	border-radius: 3px;
+	overflow: hidden;
+}
+.bar-row .fill {
+	height: 100%;
+	background: var(--c-bar);
+	border-radius: 3px;
+}
+.bar-row .num {
+	font-variant-numeric: tabular-nums;
+	color: var(--muted);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.mix .stack {
+	display: flex;
+	height: 18px;
+	border-radius: 4px;
+	overflow: hidden;
+	margin: 6px 0 10px;
+}
+.mix .seg {
+	height: 100%;
+}
+.mix .legend {
+	display: grid;
+	grid-template-columns: auto 1fr auto auto;
+	gap: 4px 10px;
+	font-size: 11px;
+	align-items: center;
+}
+.mix .swatch {
+	width: 10px;
+	height: 10px;
+	border-radius: 2px;
+}
+.mix .legend .num {
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	color: var(--muted);
+}
+.seg.input,
+.swatch.input {
+	background: var(--c-input);
+}
+.seg.cacheRead,
+.swatch.cacheRead {
+	background: var(--c-cache-read);
+}
+.seg.cacheWrite,
+.swatch.cacheWrite {
+	background: var(--c-cache-write);
+}
+.seg.output,
+.swatch.output {
+	background: var(--c-output);
+}
+
+.table-wrap {
+	overflow: auto;
+	max-height: 420px;
+}
+table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+th,
+td {
+	padding: 5px 8px;
+	text-align: right;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+th:first-child,
+td:first-child,
+th.left,
+td.left {
+	text-align: left;
+}
+thead th {
+	position: sticky;
+	top: 0;
+	background: var(--card);
+	color: var(--muted);
+	font-weight: 600;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	cursor: pointer;
+	border-bottom: 1px solid var(--border);
+	user-select: none;
+}
+thead th:hover {
+	color: var(--vscode-foreground);
+}
+thead th.sorted::after {
+	content: " ▾";
+}
+thead th.sorted.asc::after {
+	content: " ▴";
+}
+tbody tr {
+	cursor: pointer;
+}
+tbody tr:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+tbody tr.detail {
+	cursor: default;
+}
+td .mini {
+	display: inline-block;
+	height: 8px;
+	border-radius: 2px;
+	vertical-align: middle;
+	margin-left: 6px;
+}
+td .mono {
+	font-family: var(--vscode-editor-font-family);
+	font-size: 11px;
+	color: var(--muted);
+}
+.empty {
+	color: var(--muted);
+	text-align: center;
+	margin-top: 40px;
+}

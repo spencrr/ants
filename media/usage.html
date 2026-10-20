@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'nonce-{{nonce}}'; script-src 'nonce-{{nonce}}'; font-src {{cspSource}};">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link rel="stylesheet" href="{{style}}">
+	<title>Claude Usage</title>
+</head>
+<body>
+	<header>
+		<div class="title">
+			<h1>Claude Usage</h1>
+			<span class="subtitle" id="subtitle"></span>
+		</div>
+		<div class="toolbar">
+			<div class="segmented" id="range" role="radiogroup" aria-label="Time range">
+				<button type="button" data-range="today">Today</button>
+				<button type="button" data-range="7d" class="active">7 days</button>
+				<button type="button" data-range="30d">30 days</button>
+				<button type="button" data-range="all">All</button>
+			</div>
+			<div class="segmented" id="measure" role="radiogroup" aria-label="Measure">
+				<button type="button" data-measure="cost" class="active">Cost</button>
+				<button type="button" data-measure="tokens">Tokens</button>
+				<button type="button" data-measure="requests">Requests</button>
+			</div>
+			<button type="button" class="link" id="openLog" title="Open the raw log file">Open log</button>
+		</div>
+	</header>
+
+	<div id="crumbs" class="crumbs"></div>
+
+	<section class="cards" id="cards"></section>
+
+	<section class="panel">
+		<div class="panel-head">
+			<h2 id="timelineTitle">Over time</h2>
+			<span class="hint">Drag to zoom. Click a bar for that bucket.</span>
+		</div>
+		<div id="timeline" class="chart"></div>
+	</section>
+
+	<section class="split">
+		<div class="panel">
+			<div class="panel-head">
+				<h2>By <span id="dimLabel">model</span></h2>
+				<div class="segmented small" id="dimension" role="radiogroup" aria-label="Breakdown">
+					<button type="button" data-dim="model" class="active">Model</button>
+					<button type="button" data-dim="surface">Surface</button>
+					<button type="button" data-dim="effort">Effort</button>
+					<button type="button" data-dim="session">Session</button>
+				</div>
+			</div>
+			<div id="breakdown" class="bars"></div>
+		</div>
+		<div class="panel">
+			<div class="panel-head">
+				<h2>Token mix</h2>
+				<span class="hint" id="cacheHint"></span>
+			</div>
+			<div id="mix" class="mix"></div>
+		</div>
+	</section>
+
+	<section class="panel">
+		<div class="panel-head">
+			<h2 id="tableTitle">Sessions</h2>
+			<span class="hint" id="tableHint"></span>
+		</div>
+		<div class="table-wrap">
+			<table id="table"></table>
+		</div>
+	</section>
+
+	<p class="empty" id="empty" hidden>No requests yet. Usage appears here after your first Claude (Console) request.</p>
+
+	<script nonce="{{nonce}}" src="{{script}}"></script>
+</body>
+</html>

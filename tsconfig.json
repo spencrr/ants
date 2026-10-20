@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "module": "node16",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node", "vscode"],
+    "outDir": "out",
+    "rootDir": "src",
+    "strict": true,
+    // The proposed API files mention types from other proposals this extension doesn't use.
+    "skipLibCheck": true,
+    "sourceMap": true
+  },
+  "include": ["src", "vscode.proposed.*.d.ts"]
+}
