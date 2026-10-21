@@ -48,17 +48,18 @@ async function queueMessages(...modes) {
 	await fetch(`${api}/__queue`, { method: 'POST', body: JSON.stringify(modes) });
 }
 
-// What `claude` /login or `ant auth login` leaves behind, pointed at the fake API.
-function writeProfile(credentials) {
+// What `claude` /login or `ant auth login` leaves behind, pointed at the fake API. The default
+// profile is the active one; `ant auth login --profile other` adds a second, for another workspace.
+function writeProfile(credentials, { name = 'default', workspace = 'wrkspc_test' } = {}) {
 	fs.mkdirSync(path.join(configDir, 'configs'), { recursive: true });
 	fs.mkdirSync(path.join(configDir, 'credentials'), { recursive: true });
 	fs.writeFileSync(path.join(configDir, 'active_config'), 'default');
 	fs.writeFileSync(
-		path.join(configDir, 'configs', 'default.json'),
+		path.join(configDir, 'configs', `${name}.json`),
 		JSON.stringify({
 			version: '1.0',
 			organization_id: '00000000-0000-0000-0000-000000000000',
-			workspace_id: 'wrkspc_test',
+			workspace_id: workspace,
 			base_url: api,
 			authentication: { type: 'user_oauth', client_id: 'test-client-id' },
 			created_by: 'claude-code',
@@ -66,7 +67,7 @@ function writeProfile(credentials) {
 	);
 	// Owner-only, like the real sign-in writes it; on Linux and macOS the SDK refuses anything looser.
 	fs.writeFileSync(
-		credentialsFile,
+		path.join(configDir, 'credentials', `${name}.json`),
 		JSON.stringify({ version: '1.0', type: 'oauth_token', scope: 'user:inference user:profile', ...credentials }),
 		{ mode: 0o600 },
 	);
@@ -133,7 +134,8 @@ function antsLog() {
 	return files.map(f => fs.readFileSync(f, 'utf8')).join('\n');
 }
 
-// VS Code logs (at trace level) every model it gets from the extension, settings included.
+// VS Code logs (at trace level) every model it gets from the extension, settings included, keyed by
+// the identifier it registers: `ants/<group>/<id>`.
 function modelsSeenByVsCode() {
 	const logsDir = process.env.LOGS_DIR;
 	const files = fs.existsSync(logsDir)
@@ -153,19 +155,28 @@ function modelsSeenByVsCode() {
 			}
 		}
 	}
-	return latest && Object.fromEntries(latest.map(({ metadata }) => [metadata.id, metadata]));
+	return latest && Object.fromEntries(latest.map(({ identifier, metadata }) => [identifier, metadata]));
 }
 
+// This run has two groups in chatLanguageModels.json: "Claude (Console)" for the active profile and
+// "Other org" for the profile named `other`.
 async function withProposedApi() {
 	assert.deepStrictEqual(await vscode.lm.selectChatModels({ vendor: 'ants' }), []);
-	const firstError = await waitFor(() => antsLog().match(/Couldn't list models: [^\n]*/)?.[0], 'the sign-in error');
-	assert.match(firstError, /No Anthropic sign-in found in .*anthropic-config/);
-	assert.match(firstError, /type \/login/);
-	log('ok - no models, and no crash, before anyone signs in; the error says where it looked');
+	const firstErrors = await waitFor(() => {
+		const lines = antsLog().match(/Couldn't list models[^\n]*/g) ?? [];
+		return lines.length >= 2 ? lines : undefined;
+	}, 'one sign-in error per group');
+	assert.match(firstErrors[0], /^Couldn't list models: No Anthropic sign-in found in .*anthropic-config/);
+	assert.match(firstErrors[0], /type \/login/);
+	assert.match(
+		firstErrors[1],
+		/^Couldn't list models for profile "other": No Anthropic profile named "other"\. Run `ant auth login --profile other`/,
+	);
+	log('ok - no models, and no crash, before anyone signs in; each group says what it is missing');
 
 	// Sign in elsewhere after VS Code started. The access token is already stale.
 	writeProfile({ access_token: 'sk-ant-oat01-stale', refresh_token: 'refresh-1', expires_at: now() - 3600 });
-	const models = await vscode.lm.selectChatModels({ vendor: 'ants' });
+	let models = await vscode.lm.selectChatModels({ vendor: 'ants' });
 	assert.deepStrictEqual(
 		models.map(m => m.id),
 		['claude-test-1', 'claude-haiku-5-5', 'claude-small'],
@@ -191,8 +202,48 @@ async function withProposedApi() {
 	);
 	log('ok - picks up a sign-in made after startup, refreshes the stale token, and saves it');
 
-	const seen = await waitFor(modelsSeenByVsCode, 'VS Code to log the models');
-	assert.deepStrictEqual(seen['claude-test-1'].configurationSchema.properties.contextSize, {
+	// The second group's profile still doesn't exist, so its error now lists what does.
+	await waitFor(
+		() => antsLog().match(/No Anthropic profile named "other"\. The profiles on this machine are: default\./)?.[0],
+		'the missing profile to be named',
+	);
+	let seen = await waitFor(modelsSeenByVsCode, 'VS Code to log the models');
+	assert.deepStrictEqual(
+		Object.keys(seen),
+		[
+			'ants/Claude (Console)/claude-test-1',
+			'ants/Claude (Console)/claude-haiku-5-5',
+			'ants/Claude (Console)/claude-small',
+		],
+		'every model belongs to its group; nothing is listed twice',
+	);
+	assert.strictEqual(seen['ants/Claude (Console)/claude-test-1'].detail, 'Claude (Console)');
+	log('ok - models come from groups only, and a group whose profile is missing says which profiles exist');
+
+	// Now sign in to the other workspace too, under its own profile.
+	const otherToken = 'sk-ant-oat01-other';
+	writeProfile(
+		{ access_token: otherToken, refresh_token: 'refresh-other', expires_at: now() + 3600 },
+		{ name: 'other', workspace: 'wrkspc_other' },
+	);
+	models = await vscode.lm.selectChatModels({ vendor: 'ants' });
+	assert.deepStrictEqual(
+		models.map(m => m.id),
+		['claude-test-1', 'claude-haiku-5-5', 'claude-small', 'claude-other-1'],
+	);
+	const other = models.find(m => m.id === 'claude-other-1');
+	seen = await waitFor(() => {
+		const all = modelsSeenByVsCode();
+		return all?.['ants/Other org/claude-other-1'] ? all : undefined;
+	}, 'VS Code to log the other group');
+	assert.strictEqual(seen['ants/Other org/claude-other-1'].detail, 'Other org');
+	const otherList = (await serverRequests()).filter(
+		r => r.path === '/v1/models' && r.headers['anthropic-workspace-id'] === 'wrkspc_other',
+	);
+	assert.ok(otherList.length > 0, 'the other workspace was asked for its models');
+	log('ok - a second group reaches a second profile, with its own workspace and models');
+
+	assert.deepStrictEqual(seen['ants/Claude (Console)/claude-test-1'].configurationSchema.properties.contextSize, {
 		type: 'number',
 		title: 'Context Size',
 		enum: [200_000, 968_000],
@@ -201,13 +252,20 @@ async function withProposedApi() {
 		default: 968_000,
 		group: 'tokens',
 	});
-	const haikuContext = seen['claude-haiku-5-5'].configurationSchema.properties.contextSize;
+	const haikuContext = seen['ants/Claude (Console)/claude-haiku-5-5'].configurationSchema.properties.contextSize;
 	assert.deepStrictEqual(
 		[haikuContext.enum, haikuContext.enumItemLabels, haikuContext.default],
 		[[100_000, 968_000], ['100K', '1M'], 100_000],
 	);
-	assert.strictEqual(seen['claude-haiku-5-5'].configurationSchema.properties.reasoningEffort.default, 'medium');
-	assert.strictEqual(seen['claude-small'].configurationSchema, undefined, 'a 200K model has nothing to pick');
+	assert.strictEqual(
+		seen['ants/Claude (Console)/claude-haiku-5-5'].configurationSchema.properties.reasoningEffort.default,
+		'medium',
+	);
+	assert.strictEqual(
+		seen['ants/Claude (Console)/claude-small'].configurationSchema,
+		undefined,
+		'a 200K model has nothing to pick',
+	);
 	log('ok - offers 200K or 1M context (1M by default), and 100K or 1M on Haiku 5.5 (100K by default)');
 
 	// A request shaped the way agent sessions send it: a history pointer, a system prompt, earlier thinking,
@@ -429,6 +487,22 @@ async function withProposedApi() {
 	);
 	log('ok - a profile this extension cannot use is named as the problem');
 
+	// A request through the other group's model goes out with that profile's token and workspace.
+	await queueMessages('stream');
+	const replyOther = await collect(
+		await other.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()),
+	);
+	assert.strictEqual(replyOther.text, 'Hello world ✓');
+	const sentOther = (await sentMessages()).at(-1);
+	assert.strictEqual(sentOther.headers['anthropic-workspace-id'], 'wrkspc_other');
+	assert.strictEqual(sentOther.headers.authorization, `Bearer ${otherToken}`);
+	assert.strictEqual(sentOther.body.model, 'claude-other-1');
+	assert.match(
+		await waitFor(() => antsLog().match(/claude-other-1 \[other\][^\n]*/)?.[0], 'the log line'),
+		/tokens in/,
+	);
+	log('ok - requests through a group use its profile');
+
 	// Signing in again fixes it without reloading. Then cancel a slow reply.
 	writeProfile({ access_token: 'sk-ant-oat01-new-login', refresh_token: 'refresh-new', expires_at: now() + 3600 });
 	await queueMessages('slow');
@@ -473,36 +547,52 @@ async function withProposedApi() {
 	assert.deepStrictEqual(settings(), { byok: true, allowed: { 'spencrr.ants': true } });
 	log('ok - "Allow Claude in Copilot Agent Sessions" turns on both settings');
 
-	await expectAgentSessionsToOfferModels();
+	await expectAgentSessionsToOfferModels('Claude Test, Claude Haiku 5.5, Claude Small, Claude Other');
 }
 
 // VS Code treats models from any extension except Copilot Chat as bring-your-own-key models, which
 // Copilot agent sessions can use once chat.agentHost.byokModels.enabled is on. No proposed API needed.
-async function expectAgentSessionsToOfferModels() {
+async function expectAgentSessionsToOfferModels(names) {
 	const catalog = await waitFor(
 		() => {
 			const found = agentHostCatalog();
-			return found.latest?.count === 3 ? found : undefined;
+			return found.latest?.names === names ? found : undefined;
 		},
-		`the agent host to offer the models (logs: ${JSON.stringify(agentHostCatalog())})`,
+		`the agent host to offer ${names} (logs: ${JSON.stringify(agentHostCatalog())})`,
 	);
-	assert.strictEqual(catalog.latest.names, 'Claude Test, Claude Haiku 5.5, Claude Small');
-	log(`ok - the agent host offers all three models to Copilot agent sessions (${catalog.latest.file})`);
+	log(`ok - the agent host offers every group's models to Copilot agent sessions (${catalog.latest.file})`);
 }
 
+// This run starts the way a fresh install does: signed in, but with no group in Manage Models yet.
 async function withoutProposedApi() {
 	writeProfile({ access_token: 'sk-ant-oat01-valid', refresh_token: 'refresh-1', expires_at: now() + 3600 });
-	const models = await vscode.lm.selectChatModels({ vendor: 'ants' });
+	assert.deepStrictEqual(await vscode.lm.selectChatModels({ vendor: 'ants' }), [], 'nothing without a group');
+	assert.strictEqual((await serverRequests()).length, 0, 'and no request to Anthropic either');
+	await waitFor(() => antsLog().includes('Offering to add the first one'), 'the offer to add a group');
+	log('ok - with no group yet there are no models, and the extension offers to add the first one');
+
+	// Add the group the way Manage Models > Add Models would. VS Code watches the file.
+	const groupsFile = path.join(process.env.LOGS_DIR, '..', 'User', 'chatLanguageModels.json');
+	fs.writeFileSync(groupsFile, JSON.stringify([{ name: 'My org', vendor: 'ants' }]));
+	const models = await waitFor(async () => {
+		const found = await vscode.lm.selectChatModels({ vendor: 'ants' });
+		return found.length > 0 ? found : undefined;
+	}, 'the new group to be picked up');
 	assert.deepStrictEqual(
 		models.map(m => m.id),
 		['claude-test-1', 'claude-haiku-5-5', 'claude-small'],
 	);
 	const seen = await waitFor(modelsSeenByVsCode, 'VS Code to log the models');
+	assert.deepStrictEqual(Object.keys(seen), [
+		'ants/My org/claude-test-1',
+		'ants/My org/claude-haiku-5-5',
+		'ants/My org/claude-small',
+	]);
 	assert.deepStrictEqual(
 		Object.values(seen).map(m => m.configurationSchema),
 		[undefined, undefined, undefined],
 	);
-	log('ok - lists models, with no effort or context size pickers');
+	log('ok - adding a group lists its models right away, with no effort or context size pickers');
 
 	// The newest models think even when nobody asks. Without the proposed API that thinking stays hidden.
 	await queueMessages('thinking');
@@ -530,7 +620,7 @@ async function withoutProposedApi() {
 	assert.strictEqual(body.output_config, undefined);
 	log('ok - chat works, and no thinking or effort is sent or shown');
 
-	await expectAgentSessionsToOfferModels();
+	await expectAgentSessionsToOfferModels('Claude Test, Claude Haiku 5.5, Claude Small');
 }
 
 exports.run = async () => {

@@ -53,7 +53,17 @@
     "languageModelChatProviders": [
       {
         "vendor": "ants",
-        "displayName": "Claude (Console)"
+        "displayName": "Claude (Console)",
+        "configuration": {
+          "type": "object",
+          "properties": {
+            "profile": {
+              "type": "string",
+              "title": "Anthropic profile",
+              "description": "A profile from `ant profile list`, or from `claude /login` with a Console account. Leave empty for the active one. Use one group per organization or workspace."
+            }
+          }
+        }
       }
     ],
     "commands": [

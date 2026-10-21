@@ -4,7 +4,10 @@
 (() => {
 	const vscode = acquireVsCodeApi();
 
-	/** @typedef {{ time: string; model: string; surface: string; session: string; effort?: string; input: number; cacheRead: number; cacheWrite: number; output: number; ms: number; cost: number }} Record */
+	/** @typedef {{ time: string; model: string; profile?: string; surface: string; session: string; effort?: string; input: number; cacheRead: number; cacheWrite: number; output: number; ms: number; cost: number }} Record */
+
+	// Requests made through the active Anthropic profile carry no profile name.
+	const ActiveProfile = '(active)';
 
 	/** @type {Record[]} */
 	let all = [];
@@ -103,13 +106,18 @@
 		});
 	}
 
+	/** A record's value along one breakdown dimension, with the label used when it has none. */
+	function dimensionValue(record, dim) {
+		return record[dim] ?? (dim === 'profile' ? ActiveProfile : '—');
+	}
+
 	/** Records after every filter. */
 	function visible() {
 		const rows = inRange();
 		if (state.filters.size === 0) {
 			return rows;
 		}
-		return rows.filter(r => [...state.filters].every(([dim, value]) => (r[dim] ?? '—') === value));
+		return rows.filter(r => [...state.filters].every(([dim, value]) => dimensionValue(r, dim) === value));
 	}
 
 	// ---- buckets for the timeline ----
@@ -394,7 +402,7 @@
 	function groupBy(rows, dim) {
 		const groups = new Map();
 		for (const r of rows) {
-			const key = r[dim] ?? '—';
+			const key = dimensionValue(r, dim);
 			const g = groups.get(key) ?? { key, value: 0, requests: 0, cost: 0 };
 			g.value += measureOf(r);
 			g.requests++;

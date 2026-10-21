@@ -1,4 +1,4 @@
-import { access, readFile } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
@@ -8,6 +8,19 @@ export const EXTENSION_ID = 'spencrr.ants';
 const SIGN_IN_STEPS =
 	'Run `claude` in a terminal, type /login, and choose "Anthropic Console account", then ' +
 	'"Sign in with your Console account". (`ant auth login` works too.)';
+
+/** The names of the Anthropic profiles on this machine, from the config files alone. */
+export async function profilesOnDisk(): Promise<string[]> {
+	try {
+		const files = await readdir(join(anthropicConfigDir(), 'configs'));
+		return files
+			.filter(file => file.endsWith('.json'))
+			.map(file => file.slice(0, -'.json'.length))
+			.sort();
+	} catch {
+		return [];
+	}
+}
 
 /** The folder where Claude Code and the `ant` CLI keep the sign-in, the same way the SDK finds it. */
 export function anthropicConfigDir() {
@@ -23,9 +36,12 @@ export function anthropicConfigDir() {
 /**
  * Explains why there's no usable sign-in, in terms of what the user actually did. The SDK's own
  * message only says which credential it couldn't find. Nothing here reads a token.
+ *
+ * `named` is the profile a Manage Models group asked for; without one, the active profile is meant.
  */
-export async function signInHelp(): Promise<string> {
-	if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
+export async function signInHelp(named: string | undefined): Promise<string> {
+	// An explicit profile makes the SDK ignore these, so they only matter for the active one.
+	if (!named && (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
 		return (
 			'ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is set in the environment VS Code was started from, and ' +
 			'it takes precedence over your sign-in. Check that it is valid, or unset it and restart VS Code.'
@@ -33,9 +49,17 @@ export async function signInHelp(): Promise<string> {
 	}
 
 	const dir = anthropicConfigDir();
-	const profile = (await readText(join(dir, 'active_config')))?.trim() || 'default';
+	const profile = named ?? ((await readText(join(dir, 'active_config')))?.trim() || 'default');
 	const config = await readJson(join(dir, 'configs', `${profile}.json`));
 	if (!config) {
+		if (named) {
+			const others = await profilesOnDisk();
+			const known = others.length > 0 ? ` The profiles on this machine are: ${others.join(', ')}.` : '';
+			return (
+				`No Anthropic profile named "${named}".${known} ` +
+				`Run \`ant auth login --profile ${named}\` to create it, or change the profile in Manage Models.`
+			);
+		}
 		// Claude Code's "Create an API key" choice keeps the key to itself; the shared profile is never written.
 		const claudeCode = await readJson(join(homedir(), '.claude.json'));
 		if (claudeCode?.primaryApiKey) {
@@ -106,6 +130,27 @@ export async function offerSetup(context: vscode.ExtensionContext, useProposedAp
 		} else if (choice === later) {
 			await context.globalState.update('setupDismissed', [...dismissed, 'proposedApi']);
 		}
+	}
+}
+
+/**
+ * Every model comes from a group in Manage Models, so a fresh install shows nothing until the
+ * first one exists. Say so once, when VS Code asks for models and there is no group to answer for.
+ */
+export async function offerFirstGroup(context: vscode.ExtensionContext, log: vscode.LogOutputChannel) {
+	if (context.globalState.get<boolean>('firstGroupOffered')) {
+		return;
+	}
+	await context.globalState.update('firstGroupOffered', true);
+	log.info('No group in Manage Models yet, so there are no models. Offering to add the first one.');
+	const add = 'Add Models';
+	const choice = await vscode.window.showInformationMessage(
+		'To use Claude (Console), add it under Manage Models. Name the group after your organization and ' +
+			'leave the profile empty to use your active Anthropic sign-in. Add one group per organization.',
+		add,
+	);
+	if (choice === add) {
+		await vscode.commands.executeCommand('workbench.action.chat.manage', 'Claude (Console)');
 	}
 }
 

@@ -157,6 +157,26 @@ const server = http.createServer(async (req, res) => {
 	}
 
 	if (url.pathname === '/v1/models') {
+		// A second workspace, reached through a second profile, has one model of its own.
+		if (req.headers['anthropic-workspace-id'] === 'wrkspc_other') {
+			return json(res, 200, {
+				data: [
+					{
+						type: 'model',
+						id: 'claude-other-1',
+						display_name: 'Claude Other',
+						created_at: '2026-09-01T00:00:00Z',
+						lifecycle: 'active',
+						max_input_tokens: 200_000,
+						max_tokens: 8192,
+						capabilities: null,
+					},
+				],
+				has_more: false,
+				first_id: 'claude-other-1',
+				last_id: 'claude-other-1',
+			});
+		}
 		const level = supported => ({ supported });
 		const thinkingModel = {
 			image_input: level(true),
@@ -344,6 +364,20 @@ async function main() {
 								'chat.agentHost.byokModels.enabled': true,
 								'extensions.supportAgentsWindow': { [extensionId]: true },
 							},
+				),
+			);
+			// Every model comes from a group in Manage Models. The proposed-API run has two: one for the
+			// active profile and one for a named profile. The other run starts with none, as a fresh
+			// install does, and adds one as it goes.
+			fs.writeFileSync(
+				path.join(userData, 'User', 'chatLanguageModels.json'),
+				JSON.stringify(
+					proposedApi
+						? [
+								{ name: 'Claude (Console)', vendor: 'ants' },
+								{ name: 'Other org', vendor: 'ants', profile: 'other' },
+							]
+						: [],
 				),
 			);
 

@@ -8,6 +8,8 @@ export interface UsageRecord {
 	/** When the request finished, as ISO 8601. */
 	time: string;
 	model: string;
+	/** The Anthropic profile (organization or workspace) billed; absent for the active one. */
+	profile?: string;
 	/** Where the request came from: the chat view, an agent session, or another extension. */
 	surface: string;
 	/** Groups requests from one conversation. */

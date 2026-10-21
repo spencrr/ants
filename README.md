@@ -28,7 +28,16 @@ code --install-extension ants-0.1.0.vsix
 
 To build it yourself, run `npm ci` and `npm run package`. To try changes without installing, open this folder in VS Code and press <kbd>F5</kbd>. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
 
-Your Claude models then show up in the chat model picker. If they don't, open **Manage Models...** from the picker. It shows what went wrong.
+Then add the provider once: open **Manage Models...** from the chat model picker, click **Add Models**, choose **Claude (Console)**, give the group a name (your organization's, say) and leave the profile empty. The extension offers to take you there the first time it runs. Your Claude models then show up in the picker under that name. If they don't, Manage Models shows what went wrong.
+
+### Several organizations or workspaces
+
+A Console sign-in is bound to one workspace, so each organization or workspace you use is its own Anthropic profile and its own group in Manage Models:
+
+1. Sign in to the other workspace under a profile name: `ant auth login --profile acme` (or run `claude /login` again). Your first sign-in is the profile called `default`, and stays the active one.
+2. In **Manage Models...**, click **Add Models** → **Claude (Console)**, name the group (**ACME**) and enter the profile name (`acme`).
+
+Each group lists that workspace's models, labelled with the group's name, in chat and in agent sessions alike. Requests through a group are billed to its organization, and the usage panel breaks spend down by profile. `ant profile list` shows the profiles on this machine; if a group names one that doesn't exist, Manage Models says so and lists the ones that do.
 
 ### Copilot agent sessions and the Agents window
 
@@ -74,7 +83,7 @@ The **Ants** output channel says whether they're on. Without them, everything el
 
 ### Usage and cost
 
-Run **Ants: Show Claude Usage** to open a panel with your spend, token counts, and cache hit rate. Pick a time range, switch between cost, tokens, and requests, break the numbers down by model, surface, effort, or session, and click a session to see each request in it. Drag across the chart to zoom in on a stretch of time.
+Run **Ants: Show Claude Usage** to open a panel with your spend, token counts, and cache hit rate. Pick a time range, switch between cost, tokens, and requests, break the numbers down by model, profile, surface, effort, or session, and click a session to see each request in it. Drag across the chart to zoom in on a stretch of time.
 
 The costs are estimates from Anthropic's list prices, which are written into `src/usageLog.ts` and can go stale. Check against the Console's Cost page when it matters. Every request is appended to `usage.jsonl` in the extension's global storage folder; **Open log** in the panel shows the file.
 
@@ -84,7 +93,7 @@ Only this extension knows what your Console account pays. The Session Cost that 
 
 Everything in `src/` is small: `extension.ts` is the model provider, `onboarding.ts` works out what's missing from the setup and says so, `usageLog.ts` keeps the request log and price table, and `usagePanel.ts` with the files in `media/` is the usage view. The provider implements VS Code's [`LanguageModelChatProvider`](https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider):
 
-- It lists your models from `/v1/models`, along with their context windows and which effort levels and kinds of thinking each one supports.
+- It lists your models from `/v1/models`, once per group in Manage Models, along with their context windows and which effort levels and kinds of thinking each one supports. Each group names an Anthropic profile, and VS Code keeps the groups apart (`ants/<group>/<model>`).
 - It converts VS Code chat messages (system prompt, earlier thinking, tool calls and results, images) to the Messages API format.
 - It streams text, thinking, and tool calls back, then reports token usage so chat can show how full the context is.
 - It turns on prompt caching, since agent mode resends the whole conversation every turn.
