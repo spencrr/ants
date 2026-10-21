@@ -1,0 +1,176 @@
+import { access, readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import * as vscode from 'vscode';
+
+export const EXTENSION_ID = 'spencrr.ants';
+
+const SIGN_IN_STEPS =
+	'Run `claude` in a terminal, type /login, and choose "Anthropic Console account", then ' +
+	'"Sign in with your Console account". (`ant auth login` works too.)';
+
+/** The folder where Claude Code and the `ant` CLI keep the sign-in, the same way the SDK finds it. */
+export function anthropicConfigDir() {
+	if (process.env.ANTHROPIC_CONFIG_DIR) {
+		return process.env.ANTHROPIC_CONFIG_DIR;
+	}
+	if (process.platform === 'win32') {
+		return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Anthropic');
+	}
+	return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'anthropic');
+}
+
+/**
+ * Explains why there's no usable sign-in, in terms of what the user actually did. The SDK's own
+ * message only says which credential it couldn't find. Nothing here reads a token.
+ */
+export async function signInHelp(): Promise<string> {
+	if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
+		return (
+			'ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is set in the environment VS Code was started from, and ' +
+			'it takes precedence over your sign-in. Check that it is valid, or unset it and restart VS Code.'
+		);
+	}
+
+	const dir = anthropicConfigDir();
+	const profile = (await readText(join(dir, 'active_config')))?.trim() || 'default';
+	const config = await readJson(join(dir, 'configs', `${profile}.json`));
+	if (!config) {
+		// Claude Code's "Create an API key" choice keeps the key to itself; the shared profile is never written.
+		const claudeCode = await readJson(join(homedir(), '.claude.json'));
+		if (claudeCode?.primaryApiKey) {
+			return (
+				"Claude Code is signed in with an API key it made for itself, which this extension can't use. " +
+				`${SIGN_IN_STEPS} Don't pick "Create an API key".`
+			);
+		}
+		return `No Anthropic sign-in found in ${dir}. ${SIGN_IN_STEPS}`;
+	}
+
+	const auth = config.authentication as { type?: string } | undefined;
+	if (auth?.type !== 'user_oauth') {
+		return (
+			`Your Anthropic profile "${profile}" uses ${auth?.type ?? 'an unknown'} authentication, which this ` +
+			`extension doesn't support. Sign in to a browser-based profile instead: ${SIGN_IN_STEPS}`
+		);
+	}
+	if (!(await exists(join(dir, 'credentials', `${profile}.json`)))) {
+		return `Your Anthropic profile "${profile}" has no saved credentials. Sign in again: ${SIGN_IN_STEPS}`;
+	}
+	return `Your sign-in for profile "${profile}" has expired or was revoked. Sign in again: ${SIGN_IN_STEPS}`;
+}
+
+/**
+ * Points out, once, the settings that agent sessions need, and the runtime argument for the
+ * proposed APIs. Both have to be changed by hand and neither is discoverable from chat.
+ */
+export async function offerSetup(context: vscode.ExtensionContext, useProposedApi: boolean) {
+	const dismissed = context.globalState.get<string[]>('setupDismissed', []);
+
+	if (!(agentSessionsAllowed() || dismissed.includes('agentSessions'))) {
+		const enable = 'Enable';
+		const later = "Don't ask again";
+		const choice = await vscode.window.showInformationMessage(
+			'Claude (Console) models can also run Copilot agent sessions, including in the Agents window. ' +
+				'That takes two settings.',
+			enable,
+			'Learn more',
+			later,
+		);
+		if (choice === enable) {
+			await allowAgentSessions();
+			await offerRestart(
+				'Agent sessions in this window can use your Claude models now. The Agents window needs VS Code to restart first.',
+			);
+		} else if (choice === 'Learn more') {
+			await openReadme('copilot-agent-sessions-and-the-agents-window');
+		} else if (choice === later) {
+			await context.globalState.update('setupDismissed', [...dismissed, 'agentSessions']);
+		}
+	}
+
+	if (!(useProposedApi || dismissed.includes('proposedApi'))) {
+		const open = 'Open argv.json';
+		const later = "Don't ask again";
+		const choice = await vscode.window.showInformationMessage(
+			"The effort picker, context size, and Claude's thinking need VS Code's proposed APIs. " +
+				`Add "enable-proposed-api": ["${EXTENSION_ID}"] to argv.json, then quit every VS Code window, the Agents window included, and reopen.`,
+			open,
+			'Learn more',
+			later,
+		);
+		if (choice === open) {
+			await vscode.commands.executeCommand('workbench.action.configureRuntimeArguments');
+		} else if (choice === 'Learn more') {
+			await openReadme('effort-picker-context-size-and-thinking');
+		} else if (choice === later) {
+			await context.globalState.update('setupDismissed', [...dismissed, 'proposedApi']);
+		}
+	}
+}
+
+/** Whether Copilot agent sessions, in this window and in the Agents window, may use the models. */
+export function agentSessionsAllowed() {
+	const byok = vscode.workspace.getConfiguration('chat').get<boolean>('agentHost.byokModels.enabled') === true;
+	const allowed = allowedInAgentsWindow()[EXTENSION_ID] === true;
+	return byok && allowed;
+}
+
+/** Turns on the two settings agent sessions need. The `ants.allowAgentSessions` command. */
+export async function allowAgentSessions() {
+	await vscode.workspace
+		.getConfiguration('chat')
+		.update('agentHost.byokModels.enabled', true, vscode.ConfigurationTarget.Global);
+	await vscode.workspace
+		.getConfiguration('extensions')
+		.update(
+			'supportAgentsWindow',
+			{ ...allowedInAgentsWindow(), [EXTENSION_ID]: true },
+			vscode.ConfigurationTarget.Global,
+		);
+}
+
+function allowedInAgentsWindow() {
+	return vscode.workspace.getConfiguration('extensions').get<Record<string, boolean>>('supportAgentsWindow', {});
+}
+
+async function offerRestart(message: string) {
+	const restart = 'Restart now';
+	// Reloading a window isn't enough: the Agents window reads its allow-list when VS Code starts.
+	if ((await vscode.window.showInformationMessage(message, restart)) === restart) {
+		await vscode.commands.executeCommand('workbench.action.quit');
+	}
+}
+
+async function openReadme(anchor: string) {
+	await vscode.env.openExternal(vscode.Uri.parse(`https://github.com/spencrr/ants#${anchor}`));
+}
+
+async function readText(file: string): Promise<string | undefined> {
+	try {
+		return await readFile(file, 'utf8');
+	} catch {
+		return undefined;
+	}
+}
+
+async function readJson(file: string): Promise<Record<string, unknown> | undefined> {
+	const text = await readText(file);
+	if (!text) {
+		return undefined;
+	}
+	try {
+		return JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+}
+
+async function exists(file: string) {
+	try {
+		await access(file);
+		return true;
+	} catch {
+		return false;
+	}
+}

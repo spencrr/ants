@@ -4,6 +4,12 @@ All notable changes to Ants are recorded here. The format follows [Keep a Change
 
 ## Unreleased
 
+### Added
+- On first run, an offer to turn on the two settings Copilot agent sessions need, and a pointer to `argv.json` when the proposed APIs are off. Each can be dismissed for good. **Ants: Allow Claude in Copilot Agent Sessions** does the same from the command palette.
+
+### Changed
+- Sign-in errors say what was found rather than "not signed in": no profile on this machine (and where it looked), a Claude Code login made with **Create an API key**, a profile kind this extension doesn't support, missing credentials, or an expired sign-in. An `ANTHROPIC_API_KEY` in the environment is called out, since it overrides the profile.
+
 ## [0.1.0] - 2026-10-20
 
 First release.

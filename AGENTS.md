@@ -24,6 +24,7 @@ The test downloads VS Code into `.vscode-test/` on first run (on Linux, run it u
 One TypeScript package, compiled with `tsc` to `out/` (CommonJS, `module: node16`), no bundler. The VSIX carries `node_modules/@anthropic-ai/sdk` with its ESM build, types and sources trimmed by `.vscodeignore`.
 
 - `src/extension.ts`: `activate` and the `LanguageModelChatProvider`. Lists models from `/v1/models`, converts VS Code chat messages to the Messages API, streams text, thinking and tool calls back, reports usage, appends to the log. `effortSetting` and `contextSizeSetting` build the pickers.
+- `src/onboarding.ts`: `signInHelp` (reads the profile *layout*, never a token, to explain why sign-in failed), `offerSetup` (one-time prompts for the agent-session settings and the proposed APIs, dismissals in `globalState.setupDismissed`), `allowAgentSessions` (the command behind the Enable button).
 - `src/usageLog.ts`: `UsageRecord`, the price table (`PRICES`, dated), `estimateCost`, `sessionOf`/`surfaceOf`, and the `UsageLog` class over `usage.jsonl` in `globalStorageUri`.
 - `src/usagePanel.ts` + `media/usage.{html,css,js}`: the **Ants: Show Claude Usage** webview. Plain DOM and SVG, VS Code theme variables, strict CSP with a nonce. The page gets records with `load`, single ones with `append`, and asks for `openLog`.
 - `test/run.mjs` (fake API + VS Code launcher) and `test/suite.js` (runs inside the extension host; CommonJS on purpose).
@@ -51,7 +52,7 @@ One TypeScript package, compiled with `tsc` to `out/` (CommonJS, `module: node16
 
 ## Gotchas
 
-- VS Code treats every model from an extension other than Copilot Chat as bring-your-own-key. Agent sessions see them only with `chat.agentHost.byokModels.enabled` (off by default in 1.141), and the Agents window runs only extensions listed in `extensions.supportAgentsWindow`. The bridge VS Code uses buffers the whole reply (no streaming), cannot cancel, hard-codes `cached_tokens: 0`, maps only `reasoningEffort` from `configurationSchema` (so `contextSize` is local-chat only), and passes `max_output_tokens` as `modelOptions.max_tokens`.
+- VS Code treats every model from an extension other than Copilot Chat as bring-your-own-key. Agent sessions see them only with `chat.agentHost.byokModels.enabled` (off by default in 1.141, on since 1.142; the agent host re-reads it live), and the Agents window runs only extensions listed in `extensions.supportAgentsWindow` (read at startup, so that one needs a restart). The bridge VS Code uses buffers the whole reply (no streaming), cannot cancel, hard-codes `cached_tokens: 0`, maps only `reasoningEffort` from `configurationSchema` (so `contextSize` is local-chat only), and passes `max_output_tokens` as `modelOptions.max_tokens`.
 - `WebviewPanel.iconPath` does not accept a `ThemeIcon` in the 1.106 typings.
 - `claude /login` → **Create an API key** stores the key inside Claude Code's own config, where the SDK's credential chain cannot see it. Only **Sign in with your Console account** writes the shared profile.
 - Haiku 5.5 bills prompts over 100K tokens at five times the price; that is why its context picker starts at 100K.

@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import * as vscode from 'vscode';
+import { allowAgentSessions, offerSetup, signInHelp } from './onboarding.js';
 import { estimateCost, sessionOf, surfaceOf, UsageLog } from './usageLog.js';
 import { UsagePanel } from './usagePanel.js';
 
@@ -12,10 +13,6 @@ const EFFORT_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extr
 type Effort = keyof typeof EFFORT_LABELS;
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-
-const SIGN_IN_HELP =
-	'To sign in, run `claude` in a terminal, type /login, and choose "Anthropic Console account", ' +
-	'then "Sign in with your Console account". (`ant auth login` works too.) Then reopen Manage Models.';
 
 /** A model as VS Code sees it, plus what this extension offers for it. */
 interface ClaudeModel extends vscode.LanguageModelChatInformation {
@@ -48,7 +45,11 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 	context.subscriptions.push(
 		vscode.commands.registerCommand('ants.showUsage', () => UsagePanel.show(context, usage)),
+		vscode.commands.registerCommand('ants.allowAgentSessions', allowAgentSessions),
 	);
+
+	// Agent sessions and the proposed APIs each need a setting changed by hand. Say so once.
+	offerSetup(context, useProposedApi).catch(error => log.warn(`Setup prompt failed: ${messageOf(error)}`));
 }
 
 class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel> {
@@ -72,8 +73,9 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 			}
 		} catch (error) {
 			this.client = undefined;
-			this.log.error(`Couldn't list models: ${messageOf(error)}`);
-			throw withSignInHelp(error);
+			const explained = await withSignInHelp(error);
+			this.log.error(`Couldn't list models: ${messageOf(explained)}`);
+			throw explained;
 		}
 
 		return models.filter(model => model.lifecycle !== 'retired').map(model => this.toChatModel(model));
@@ -160,8 +162,9 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		try {
 			reply = await this.streamWithRetry(body, progress, token);
 		} catch (error) {
-			this.log.error(`${model.id} failed: ${messageOf(error)}`);
-			throw withSignInHelp(error);
+			const explained = await withSignInHelp(error);
+			this.log.error(`${model.id} failed: ${messageOf(explained)}`);
+			throw explained;
 		}
 
 		const { usage } = reply;
@@ -431,13 +434,11 @@ function messageOf(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
-/** Adds sign-in instructions to errors caused by being signed out or by an expired sign-in. */
-function withSignInHelp(error: unknown): unknown {
+/** Replaces the SDK's credential errors with what went wrong and what to do about it. */
+async function withSignInHelp(error: unknown): Promise<unknown> {
 	// The API answered (or couldn't be reached) for some other reason, like a rate limit.
 	if (error instanceof Anthropic.APIError && error.status !== 401) {
 		return error;
 	}
-	return new Error(
-		`You're not signed in to Claude, or your sign-in has expired. ${SIGN_IN_HELP}\n\nDetails: ${messageOf(error)}`,
-	);
+	return new Error(`${await signInHelp()} Then reopen Manage Models.\n\nDetails: ${messageOf(error)}`);
 }

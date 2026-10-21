@@ -68,7 +68,9 @@
         // Positional parameters are fine for the few internal helpers that take more than four.
         "useMaxParams": "off",
         // `void promise` is the explicit mark for an intentionally un-awaited promise.
-        "noVoid": "off"
+        "noVoid": "off",
+        // Its De Morgan rewrites (`!a && !b` -> `!(a || b)`) read worse.
+        "useSimplifiedLogicExpression": "off"
       },
       "correctness": {
         "preset": "all",

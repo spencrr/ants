@@ -333,10 +333,18 @@ async function main() {
 			const userData = path.join(portable, 'user-data');
 			fs.mkdirSync(path.join(userData, 'User'), { recursive: true });
 			fs.writeFileSync(path.join(portable, 'argv.json'), '{}');
-			// Agent sessions only use extension models with this on, on any machine.
+			// Agent sessions only use extension models with this on, on any machine. The proposed-API
+			// run starts with it off, so the suite can watch the extension offer to turn it on.
 			fs.writeFileSync(
 				path.join(userData, 'User', 'settings.json'),
-				JSON.stringify({ 'chat.agentHost.byokModels.enabled': true }),
+				JSON.stringify(
+					proposedApi
+						? {}
+						: {
+								'chat.agentHost.byokModels.enabled': true,
+								'extensions.supportAgentsWindow': { [extensionId]: true },
+							},
+				),
 			);
 
 			await runTests({

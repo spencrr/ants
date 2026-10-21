@@ -121,6 +121,18 @@ function agentHostCatalog() {
 	return { latest, files: files.map(f => path.relative(logsDir, f)) };
 }
 
+// What the extension wrote to its own output channel.
+function antsLog() {
+	const logsDir = process.env.LOGS_DIR;
+	const files = fs.existsSync(logsDir)
+		? fs
+				.readdirSync(logsDir, { recursive: true })
+				.filter(f => f.endsWith('Ants.log'))
+				.map(f => path.join(logsDir, f))
+		: [];
+	return files.map(f => fs.readFileSync(f, 'utf8')).join('\n');
+}
+
 // VS Code logs (at trace level) every model it gets from the extension, settings included.
 function modelsSeenByVsCode() {
 	const logsDir = process.env.LOGS_DIR;
@@ -146,7 +158,10 @@ function modelsSeenByVsCode() {
 
 async function withProposedApi() {
 	assert.deepStrictEqual(await vscode.lm.selectChatModels({ vendor: 'ants' }), []);
-	log('ok - no models, and no crash, before anyone signs in');
+	const firstError = await waitFor(() => antsLog().match(/Couldn't list models: [^\n]*/)?.[0], 'the sign-in error');
+	assert.match(firstError, /No Anthropic sign-in found in .*anthropic-config/);
+	assert.match(firstError, /type \/login/);
+	log('ok - no models, and no crash, before anyone signs in; the error says where it looked');
 
 	// Sign in elsewhere after VS Code started. The access token is already stale.
 	writeProfile({ access_token: 'sk-ant-oat01-stale', refresh_token: 'refresh-1', expires_at: now() - 3600 });
@@ -395,13 +410,24 @@ async function withProposedApi() {
 	await assert.rejects(
 		async () => collect(await model.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token())),
 		error => {
-			assert.match(error.message, /not signed in to Claude, or your sign-in has expired/);
+			assert.match(error.message, /sign-in for profile "default" has expired or was revoked/);
 			assert.match(error.message, /type \/login/);
-			assert.match(error.message, /revoked/, 'keeps the underlying reason');
+			assert.match(error.message, /Details: .*revoked/, 'keeps the underlying reason');
 			return true;
 		},
 	);
 	log('ok - an expired sign-in fails with instructions for signing in again');
+
+	// A profile that isn't a browser sign-in, like a federated one from CI, gets a different hint.
+	fs.writeFileSync(
+		path.join(configDir, 'configs', 'default.json'),
+		JSON.stringify({ version: '1.0', base_url: api, authentication: { type: 'oidc_federation' } }),
+	);
+	await assert.rejects(
+		async () => collect(await model.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token())),
+		/profile "default" uses oidc_federation authentication, which this extension doesn't support/,
+	);
+	log('ok - a profile this extension cannot use is named as the problem');
 
 	// Signing in again fixes it without reloading. Then cancel a slow reply.
 	writeProfile({ access_token: 'sk-ant-oat01-new-login', refresh_token: 'refresh-new', expires_at: now() + 3600 });
@@ -434,6 +460,18 @@ async function withProposedApi() {
 
 	assert.strictEqual(await model.countTokens('abcdefghi'), 3);
 	log('ok - token count estimate');
+
+	// This run started with the Agents window allow-list empty (and the agent-session setting at
+	// VS Code's default, which was off until 1.142), so the extension offered to set them up. Take the
+	// offer the way its Enable button does: through the command.
+	const settings = () => ({
+		byok: vscode.workspace.getConfiguration('chat').get('agentHost.byokModels.enabled'),
+		allowed: vscode.workspace.getConfiguration('extensions').get('supportAgentsWindow'),
+	});
+	assert.deepStrictEqual(settings().allowed, {});
+	await vscode.commands.executeCommand('ants.allowAgentSessions');
+	assert.deepStrictEqual(settings(), { byok: true, allowed: { 'spencrr.ants': true } });
+	log('ok - "Allow Claude in Copilot Agent Sessions" turns on both settings');
 
 	await expectAgentSessionsToOfferModels();
 }

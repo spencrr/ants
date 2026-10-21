@@ -16,7 +16,7 @@ If Claude Code already works with your Console account, skip this. Otherwise:
 
 If you have the `ant` CLI, `ant auth login` does the same thing.
 
-If your sign-in expires and can't be renewed, chat shows an error asking you to sign in again. Do the steps above and try again. There's no need to reload VS Code.
+If something is wrong with the sign-in, **Manage Models...** in the model picker says what: no sign-in on this machine, a Claude Code login that used **Create an API key**, a profile of a kind this extension can't use, or a sign-in that has expired. Do the steps above and try again. There's no need to reload VS Code.
 
 ## Install
 
@@ -34,13 +34,13 @@ Your Claude models then show up in the chat model picker. If they don't, open **
 
 Of VS Code's agents, only Copilot can use models from extensions. That covers the Copilot CLI session type in chat, and Copilot in the Agents window. The Claude and Codex agents only offer their own models.
 
-Copilot agent sessions only use models from extensions when this setting is on. In VS Code 1.141 it's off by default:
+This takes two settings, which the extension offers to turn on the first time it runs. You can also run **Ants: Allow Claude in Copilot Agent Sessions** at any time, or set them yourself. Copilot agent sessions only use models from extensions when this is on (the default since VS Code 1.142; off in 1.141):
 
 ```json
 "chat.agentHost.byokModels.enabled": true
 ```
 
-The Agents window also only runs extensions you allow, so add this one:
+And the Agents window only runs extensions you allow:
 
 ```json
 "extensions.supportAgentsWindow": {
@@ -48,9 +48,9 @@ The Agents window also only runs extensions you allow, so add this one:
 }
 ```
 
-Without that, agent sessions in the Agents window can only use your Claude models while a regular VS Code window is open. VS Code takes extension models from just one window at a time, so the models can also drop out of agent sessions when it picks the Agents window. In that window's model picker they'd also be listed under "Ants" rather than "Claude (Console)".
+Without the second one, agent sessions in the Agents window can only use your Claude models while a regular VS Code window is open. VS Code takes extension models from just one window at a time, so the models can also drop out of agent sessions when it picks the Agents window. In that window's model picker they'd also be listed under "Ants" rather than "Claude (Console)".
 
-Restart VS Code after changing either setting. Then, in a Copilot agent session, open the model picker and switch from the **GitHub Copilot** tab to the **Claude (Console)** tab.
+The first setting takes effect right away. The Agents window reads the second one when VS Code starts, so restart for that. Then, in a Copilot agent session, open the model picker and switch from the **GitHub Copilot** tab to the **Claude (Console)** tab.
 
 **Manage Models** lists each Claude model only once, under Claude (Console), even though agent sessions can use it too. Hiding a model there hides it everywhere.
 
@@ -64,7 +64,7 @@ Three more features need VS Code's proposed APIs:
 - **Context size.** In local chat, you can pick how much of the model's context window the conversation may fill. Copilot summarizes the conversation once it outgrows that size, which keeps each turn cheaper. Models with a 1M window offer 200K or 1M and start at 1M. Claude Haiku 5.5 offers 100K or 1M and starts at 100K, because its prompts over 100K tokens cost five times as much. Copilot agent sessions don't offer this for models from extensions yet.
 - **Claude's thinking.** It's shown in chat and carried over to the next turn, which helps on longer tasks.
 
-VS Code only turns these APIs on for extensions you list. Run **Preferences: Configure Runtime Arguments**, add this line, and quit and reopen VS Code. Every window has to close, the Agents window included, because reloading a window doesn't pick up this file:
+VS Code only turns these APIs on for extensions you list. The extension points this out once when they're off, with a button that opens the file. Or run **Preferences: Configure Runtime Arguments** yourself. Add this line, then quit and reopen VS Code. Every window has to close, the Agents window included, because reloading a window doesn't pick up this file:
 
 ```json
 "enable-proposed-api": ["spencrr.ants"]
@@ -82,7 +82,7 @@ Only this extension knows what your Console account pays. The Session Cost that 
 
 ## How it works
 
-Everything in `src/` is small: `extension.ts` is the model provider, `usageLog.ts` keeps the request log and price table, and `usagePanel.ts` with the files in `media/` is the usage view. The provider implements VS Code's [`LanguageModelChatProvider`](https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider):
+Everything in `src/` is small: `extension.ts` is the model provider, `onboarding.ts` works out what's missing from the setup and says so, `usageLog.ts` keeps the request log and price table, and `usagePanel.ts` with the files in `media/` is the usage view. The provider implements VS Code's [`LanguageModelChatProvider`](https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider):
 
 - It lists your models from `/v1/models`, along with their context windows and which effort levels and kinds of thinking each one supports.
 - It converts VS Code chat messages (system prompt, earlier thinking, tool calls and results, images) to the Messages API format.
