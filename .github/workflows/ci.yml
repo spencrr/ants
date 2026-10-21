@@ -55,7 +55,7 @@ jobs:
           name: test-logs-${{ matrix.os }}
           path: |
             test/.scratch/results.log
-            test/.scratch/portable/user-data/logs/
+            test/.scratch/portable*/user-data/logs/
           retention-days: 7
 
   build:

@@ -296,11 +296,6 @@ async function main() {
 		delete process.env[name];
 	}
 
-	// Run VS Code in portable mode. Otherwise it reads argv.json, where proposed APIs can be turned
-	// on, from your own ~/.vscode, even with a separate user data folder.
-	const portable = path.join(scratch, 'portable');
-	process.env.VSCODE_PORTABLE = portable;
-
 	try {
 		for (const proposedApi of [true, false]) {
 			requests = [];
@@ -328,8 +323,13 @@ async function main() {
 			fs.rmSync(configDir, { recursive: true, force: true });
 			fs.mkdirSync(configDir);
 
-			// Portable mode keeps everything, user data included, in this one folder.
+			// Run VS Code in portable mode. Otherwise it reads argv.json, where proposed APIs can be turned
+			// on, from your own ~/.vscode, even with a separate user data folder. Portable mode keeps
+			// everything, user data included, in this one folder. Each pass gets its own: on Windows the
+			// previous VS Code can still hold a log file open for a moment after it exits.
+			const portable = path.join(scratch, proposedApi ? 'portable-proposed' : 'portable');
 			fs.rmSync(portable, { recursive: true, force: true });
+			process.env.VSCODE_PORTABLE = portable;
 			const userData = path.join(portable, 'user-data');
 			fs.mkdirSync(path.join(userData, 'User'), { recursive: true });
 			fs.writeFileSync(path.join(portable, 'argv.json'), '{}');

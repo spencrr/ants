@@ -56,5 +56,5 @@ One TypeScript package, compiled with `tsc` to `out/` (CommonJS, `module: node16
 - `WebviewPanel.iconPath` does not accept a `ThemeIcon` in the 1.106 typings.
 - `claude /login` → **Create an API key** stores the key inside Claude Code's own config, where the SDK's credential chain cannot see it. Only **Sign in with your Console account** writes the shared profile.
 - Haiku 5.5 bills prompts over 100K tokens at five times the price; that is why its context picker starts at 100K.
-- VS Code reads `argv.json` from `~/.vscode` even with a separate `--user-data-dir`. The test sets `VSCODE_PORTABLE` so the test instance cannot see the real one.
+- VS Code reads `argv.json` from `~/.vscode` even with a separate `--user-data-dir`. The test sets `VSCODE_PORTABLE` so the test instance cannot see the real one. Each pass uses its own portable folder: on Windows the previous VS Code can still hold `exthost.log` open for a moment after `runTests` returns, and deleting the folder then fails with `EBUSY`.
 - Biome's `noProcessGlobal` fix inserts an ESM `import process from 'node:process'`, which breaks `test/suite.js` (CommonJS). The rule is off.
