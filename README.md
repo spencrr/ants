@@ -16,7 +16,7 @@ If Claude Code already works with your Console account, skip this. Otherwise:
 
 If you have the `ant` CLI, `ant auth login` does the same thing.
 
-If something is wrong with the sign-in, **Manage Models...** in the model picker says what: no sign-in on this machine, a Claude Code login that used **Create an API key**, a profile of a kind this extension can't use, or a sign-in that has expired. Do the steps above and try again. There's no need to reload VS Code.
+If something is wrong with the sign-in, **Manage Models...** in the model picker says what: no sign-in on this machine, a Claude Code login that used **Create an API key**, a profile file that can't be read, a sign-in that has expired, or an API host that can't be reached. Profiles that sign in another way (workload identity federation, say) get the SDK's own error. Do the steps above and try again. There's no need to reload VS Code.
 
 ## Install
 

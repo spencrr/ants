@@ -191,6 +191,18 @@ async function withProposedApi() {
 	);
 	log('ok - no models, and no crash, before anyone signs in; each group says what it is missing');
 
+	// Claude Code's "Create an API key" login leaves a key in its own settings file and no profile.
+	const claudeCodeSettings = path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json');
+	fs.mkdirSync(process.env.CLAUDE_CONFIG_DIR, { recursive: true });
+	fs.writeFileSync(claudeCodeSettings, JSON.stringify({ primaryApiKey: 'sk-ant-api03-not-for-us' }));
+	await vscode.lm.selectChatModels({ vendor: 'ants' });
+	await waitFor(
+		() => antsLog().match(/Claude Code is signed in with an API key it made for itself[^\n]*/)?.[0],
+		'the API-key hint',
+	);
+	fs.rmSync(claudeCodeSettings);
+	log('ok - a Claude Code login that made its own API key is told apart from no login at all');
+
 	// Sign in elsewhere after VS Code started. The access token is already stale.
 	writeProfile({ access_token: 'sk-ant-oat01-stale', refresh_token: 'refresh-1', expires_at: now() - 3600 });
 	let models = await vscode.lm.selectChatModels({ vendor: 'ants' });
@@ -518,9 +530,9 @@ async function withProposedApi() {
 	);
 	await assert.rejects(
 		async () => collect(await model.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token())),
-		/profile "default" uses oidc_federation authentication, which this extension doesn't support/,
+		/profile "default" signs in with oidc_federation, and that didn't work this time\. The details below are the SDK's\.\n\nDetails: /,
 	);
-	log('ok - a profile this extension cannot use is named as the problem');
+	log("ok - a profile that signs in another way gets the SDK's own error, not sign-in steps");
 
 	// A request through the other group's model goes out with that profile's token and workspace.
 	await queueMessages('stream');
@@ -545,6 +557,32 @@ async function withProposedApi() {
 		['other', 'Other Org', 'wrkspc_other'],
 	);
 	log('ok - requests through a group use its profile');
+
+	// When the API host can't be reached, say that, rather than blaming the sign-in. The client is
+	// made afresh after a failure, so fail the other profile once first, then point it at a dead port.
+	await queueMessages('401', '401');
+	await assert.rejects(
+		async () => collect(await other.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token())),
+		/sign-in for profile "other" has expired or was revoked/,
+	);
+	const otherConfig = path.join(configDir, 'configs', 'other.json');
+	fs.writeFileSync(otherConfig, fs.readFileSync(otherConfig, 'utf8').replace(api, 'http://127.0.0.1:9'));
+	await assert.rejects(
+		async () => collect(await other.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token())),
+		/Error: Couldn't reach http:\/\/127\.0\.0\.1:9: Connection error\./,
+	);
+	// Sign in to the other workspace again, which also puts its API host back.
+	writeProfile(
+		{ access_token: otherToken, refresh_token: 'refresh-other', expires_at: now() + 3600 },
+		{ name: 'other', workspace: 'wrkspc_other' },
+	);
+	await queueMessages('stream');
+	assert.strictEqual(
+		(await collect(await other.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()))).text,
+		'Hello world ✓',
+		'works again once the host is back',
+	);
+	log('ok - an unreachable API host is reported as such, and recovers without a reload');
 
 	// Signing in again fixes it without reloading. Then cancel a slow reply.
 	writeProfile({ access_token: 'sk-ant-oat01-new-login', refresh_token: 'refresh-new', expires_at: now() + 3600 });
@@ -626,6 +664,11 @@ async function withProposedApi() {
 	assert.match(status, /^- \*\*Copilot agent sessions:\*\* not yet: .*supportAgentsWindow/m);
 	assert.doesNotMatch(status, /Profiles with no group/, 'every profile on disk has a group');
 	log('ok - the connection status page names the organization, workspace and account of each group');
+
+	// VS Code asks for models without a group before it asks per group. That first call must not be
+	// mistaken for "no groups": this run has had two all along.
+	assert.ok(!antsLog().includes('Offering to add the first one'), 'no offer to add a group when there are groups');
+	log('ok - the offer to add a first group stays quiet when groups exist');
 
 	assert.strictEqual(await model.countTokens('abcdefghi'), 3);
 	log('ok - token count estimate');

@@ -352,10 +352,13 @@ async function main() {
 				),
 			);
 
-			// Starts empty: the extension has to cope with nobody being signed in yet.
+			// Starts empty: the extension has to cope with nobody being signed in yet. Claude Code's own
+			// settings file is kept out of the way too, so the suite never reads yours.
 			const configDir = path.join(scratch, 'anthropic-config');
 			fs.rmSync(configDir, { recursive: true, force: true });
 			fs.mkdirSync(configDir);
+			const claudeConfigDir = path.join(scratch, 'claude-config');
+			fs.rmSync(claudeConfigDir, { recursive: true, force: true });
 
 			// Run VS Code in portable mode. Otherwise it reads argv.json, where proposed APIs can be turned
 			// on, from your own ~/.vscode, even with a separate user data folder. Portable mode keeps
@@ -402,6 +405,7 @@ async function main() {
 				extensionTestsEnv: {
 					PROPOSED_API: proposedApi ? '1' : '0',
 					ANTHROPIC_CONFIG_DIR: configDir,
+					CLAUDE_CONFIG_DIR: claudeConfigDir,
 					FAKE_ANTHROPIC_URL: apiUrl,
 					LOGS_DIR: path.join(userData, 'logs'),
 				},

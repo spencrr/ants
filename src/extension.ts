@@ -98,6 +98,10 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 	private readonly profiles = new Map<string, ProfileState>();
 	private readonly changed = new vscode.EventEmitter<void>();
 	readonly onDidChangeLanguageModelChatInformation = this.changed.event;
+	// VS Code asks for models without a group first and then once per group, so a group call
+	// arriving within a moment of the groupless one means there are groups after all.
+	private noGroupsTimer: NodeJS.Timeout | undefined;
+	private sawGroup = false;
 
 	constructor(
 		private readonly log: vscode.LogOutputChannel,
@@ -108,6 +112,7 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 
 	dispose() {
 		this.changed.dispose();
+		clearTimeout(this.noGroupsTimer);
 	}
 
 	async provideLanguageModelChatInformation(options: ModelListOptions): Promise<ClaudeModel[]> {
@@ -115,9 +120,13 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		// workspace). VS Code also asks once without a group; answering that too would list
 		// the active profile's models twice.
 		if (!options.configuration) {
-			this.onNoGroups();
+			if (!this.sawGroup) {
+				this.noGroupsTimer ??= setTimeout(() => this.onNoGroups(), 3000);
+			}
 			return [];
 		}
+		this.sawGroup = true;
+		clearTimeout(this.noGroupsTimer);
 		const profile = profileOf(options.configuration);
 
 		const models: Anthropic.ModelInfo[] = [];
@@ -162,8 +171,8 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 
 	/** Drops the profile's client, remembers the error, and swaps in an explanation. */
 	private async failed(named: string | undefined, error: unknown): Promise<unknown> {
-		const explained = await withSignInHelp(error, named);
 		const state = this.profiles.get(named ?? '');
+		const explained = await explain(error, named, state?.connection?.client.baseURL);
 		if (state) {
 			state.connection = undefined;
 			state.lastError = messageOf(explained).split('\n')[0];
@@ -560,15 +569,24 @@ function messageOf(error: unknown) {
 
 /** The profile a Manage Models group names, or undefined for the active one. */
 function profileOf(configuration: { readonly profile?: unknown }): string | undefined {
-	const profile = typeof configuration.profile === 'string' ? configuration.profile.trim() : '';
-	return profile || undefined;
+	const { profile } = configuration;
+	if (profile !== undefined && profile !== null && typeof profile !== 'string') {
+		throw new Error(
+			'The profile in Manage Models has to be a name, like "acme". Leave it empty for the active sign-in.',
+		);
+	}
+	return profile?.trim() || undefined;
 }
 
-/** Replaces the SDK's credential errors with what went wrong and what to do about it. */
-async function withSignInHelp(error: unknown, profile: string | undefined): Promise<unknown> {
-	// The API answered (or couldn't be reached) for some other reason, like a rate limit.
+/** Replaces the SDK's errors, where they are vague, with what went wrong and what to do about it. */
+async function explain(error: unknown, profile: string | undefined, baseURL: string | undefined): Promise<unknown> {
+	if (error instanceof Anthropic.APIConnectionError) {
+		const cause = error.cause instanceof Error ? ` (${error.cause.message})` : '';
+		return new Error(`Couldn't reach ${baseURL ?? 'the Anthropic API'}: ${error.message}${cause}`);
+	}
+	// The API answered, and not about the sign-in: a rate limit, say, or a model it doesn't know.
 	if (error instanceof Anthropic.APIError && error.status !== 401) {
 		return error;
 	}
-	return new Error(`${await signInHelp(profile)} Then reopen Manage Models.\n\nDetails: ${messageOf(error)}`);
+	return new Error(`${await signInHelp(profile)}\n\nDetails: ${messageOf(error)}`);
 }

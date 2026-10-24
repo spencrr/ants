@@ -1,33 +1,40 @@
 import { access, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { type AnthropicConfig, getCredentialsPath, loadConfig } from '@anthropic-ai/sdk/core/credentials';
 import * as vscode from 'vscode';
-import { anthropicConfigDir, profilesOnDisk } from './identity.js';
+import { activeProfileName, anthropicConfigDir, environmentKey, profilesOnDisk } from './identity.js';
 
 export const EXTENSION_ID = 'spencrr.ants';
 
 const SIGN_IN_STEPS =
 	'Run `claude` in a terminal, type /login, and choose "Anthropic Console account", then ' +
-	'"Sign in with your Console account". (`ant auth login` works too.)';
+	'"Sign in with your Console account". (`ant auth login` works too.) Then reopen Manage Models.';
 
 /**
- * Explains why there's no usable sign-in, in terms of what the user actually did. The SDK's own
+ * Explains why the sign-in didn't work, in terms of what the user actually did. The SDK's own
  * message only says which credential it couldn't find. Nothing here reads a token.
  *
  * `named` is the profile a Manage Models group asked for; without one, the active profile is meant.
  */
 export async function signInHelp(named: string | undefined): Promise<string> {
 	// An explicit profile makes the SDK ignore these, so they only matter for the active one.
-	if (!named && (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
+	const key = named ? undefined : environmentKey();
+	if (key) {
 		return (
-			'ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is set in the environment VS Code was started from, and ' +
-			'it takes precedence over your sign-in. Check that it is valid, or unset it and restart VS Code.'
+			`${key} is set in the environment VS Code was started from, and it takes precedence over your ` +
+			'sign-in. Check that it is valid, or unset it and restart VS Code.'
 		);
 	}
 
-	const dir = anthropicConfigDir();
-	const profile = named ?? ((await readText(join(dir, 'active_config')))?.trim() || 'default');
-	const config = await readJson(join(dir, 'configs', `${profile}.json`));
+	const profile = named ?? (await activeProfileName());
+	let config: AnthropicConfig | null;
+	try {
+		config = await loadConfig(profile);
+	} catch (error) {
+		// The file is there but can't be used; the SDK says what is wrong with it.
+		return `Your Anthropic profile "${profile}" can't be used: ${messageOf(error)}`;
+	}
 	if (!config) {
 		if (named) {
 			const others = await profilesOnDisk();
@@ -38,27 +45,32 @@ export async function signInHelp(named: string | undefined): Promise<string> {
 			);
 		}
 		// Claude Code's "Create an API key" choice keeps the key to itself; the shared profile is never written.
-		const claudeCode = await readJson(join(homedir(), '.claude.json'));
+		const claudeCode = await readJson(claudeCodeConfigFile());
 		if (claudeCode?.primaryApiKey) {
 			return (
 				"Claude Code is signed in with an API key it made for itself, which this extension can't use. " +
 				`${SIGN_IN_STEPS} Don't pick "Create an API key".`
 			);
 		}
-		return `No Anthropic sign-in found in ${dir}. ${SIGN_IN_STEPS}`;
+		return `No Anthropic sign-in found in ${anthropicConfigDir()}. ${SIGN_IN_STEPS}`;
 	}
 
-	const auth = config.authentication as { type?: string } | undefined;
-	if (auth?.type !== 'user_oauth') {
+	if (config.authentication.type !== 'user_oauth') {
 		return (
-			`Your Anthropic profile "${profile}" uses ${auth?.type ?? 'an unknown'} authentication, which this ` +
-			`extension doesn't support. Sign in to a browser-based profile instead: ${SIGN_IN_STEPS}`
+			`Your Anthropic profile "${profile}" signs in with ${config.authentication.type}, and that ` +
+			"didn't work this time. The details below are the SDK's."
 		);
 	}
-	if (!(await exists(join(dir, 'credentials', `${profile}.json`)))) {
+	const credentials = await getCredentialsPath(config, profile);
+	if (!(credentials && (await exists(credentials)))) {
 		return `Your Anthropic profile "${profile}" has no saved credentials. Sign in again: ${SIGN_IN_STEPS}`;
 	}
 	return `Your sign-in for profile "${profile}" has expired or was revoked. Sign in again: ${SIGN_IN_STEPS}`;
+}
+
+/** Claude Code's own settings file, which moves with CLAUDE_CONFIG_DIR the way its other files do. */
+function claudeCodeConfigFile() {
+	return join(process.env.CLAUDE_CONFIG_DIR ?? homedir(), '.claude.json');
 }
 
 /**
@@ -80,13 +92,14 @@ export async function offerSetup(context: vscode.ExtensionContext, useProposedAp
 		);
 		if (choice === enable) {
 			await allowAgentSessions();
-			await offerRestart(
-				'Agent sessions in this window can use your Claude models now. The Agents window needs VS Code to restart first.',
+			await offerQuit(
+				'Agent sessions in this window can use your Claude models now. The Agents window reads its ' +
+					'allow-list when VS Code starts, so quit VS Code and open it again for that one.',
 			);
 		} else if (choice === 'Learn more') {
 			await openReadme('copilot-agent-sessions-and-the-agents-window');
 		} else if (choice === later) {
-			await context.globalState.update('setupDismissed', [...dismissed, 'agentSessions']);
+			await dismiss(context, 'agentSessions');
 		}
 	}
 
@@ -105,14 +118,20 @@ export async function offerSetup(context: vscode.ExtensionContext, useProposedAp
 		} else if (choice === 'Learn more') {
 			await openReadme('effort-picker-context-size-and-thinking');
 		} else if (choice === later) {
-			await context.globalState.update('setupDismissed', [...dismissed, 'proposedApi']);
+			await dismiss(context, 'proposedApi');
 		}
 	}
 }
 
+/** Remembers a "Don't ask again". Reads the list afresh: the other prompt may have added to it meanwhile. */
+async function dismiss(context: vscode.ExtensionContext, prompt: string) {
+	const dismissed = context.globalState.get<string[]>('setupDismissed', []);
+	await context.globalState.update('setupDismissed', [...new Set([...dismissed, prompt])]);
+}
+
 /**
  * Every model comes from a group in Manage Models, so a fresh install shows nothing until the
- * first one exists. Say so once, when VS Code asks for models and there is no group to answer for.
+ * first one exists. Say so once, when VS Code asks for models and no group answers.
  */
 export async function offerFirstGroup(context: vscode.ExtensionContext, log: vscode.LogOutputChannel) {
 	if (context.globalState.get<boolean>('firstGroupOffered')) {
@@ -163,10 +182,10 @@ function allowedInAgentsWindow() {
 	return vscode.workspace.getConfiguration('extensions').get<Record<string, boolean>>('supportAgentsWindow', {});
 }
 
-async function offerRestart(message: string) {
-	const restart = 'Restart now';
-	// Reloading a window isn't enough: the Agents window reads its allow-list when VS Code starts.
-	if ((await vscode.window.showInformationMessage(message, restart)) === restart) {
+// VS Code has no command that quits and comes back, so the most it can do is quit.
+async function offerQuit(message: string) {
+	const quit = 'Quit VS Code';
+	if ((await vscode.window.showInformationMessage(message, quit)) === quit) {
 		await vscode.commands.executeCommand('workbench.action.quit');
 	}
 }
@@ -175,24 +194,16 @@ async function openReadme(anchor: string) {
 	await vscode.env.openExternal(vscode.Uri.parse(`https://github.com/spencrr/ants#${anchor}`));
 }
 
-async function readText(file: string): Promise<string | undefined> {
+async function readJson(file: string): Promise<Record<string, unknown> | undefined> {
 	try {
-		return await readFile(file, 'utf8');
+		return JSON.parse(await readFile(file, 'utf8'));
 	} catch {
 		return undefined;
 	}
 }
 
-async function readJson(file: string): Promise<Record<string, unknown> | undefined> {
-	const text = await readText(file);
-	if (!text) {
-		return undefined;
-	}
-	try {
-		return JSON.parse(text);
-	} catch {
-		return undefined;
-	}
+function messageOf(error: unknown) {
+	return error instanceof Error ? error.message : String(error);
 }
 
 async function exists(file: string) {
