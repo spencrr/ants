@@ -27,7 +27,7 @@
     "Chat"
   ],
   "engines": {
-    "vscode": "^1.106.0",
+    "vscode": "^1.141.0",
     "node": ">=22.13"
   },
   "extensionKind": [
@@ -98,7 +98,7 @@
     "test:vsix": "node test/run.mjs --vsix",
     "check": "npm run typecheck && npm run lint && npm test",
     "package": "vsce package",
-    "proposed-api": "vscode-dts dev 1.141.0",
+    "proposed-api": "vscode-dts dev 1.143.0",
     "vscode:prepublish": "npm run compile",
     "prepare": "lefthook install"
   },
@@ -108,7 +108,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@types/node": "^22.13.0",
-    "@types/vscode": "~1.106.0",
+    "@types/vscode": "~1.140.0",
     "@vscode/dts": "^0.4.1",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0",

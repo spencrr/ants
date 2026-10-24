@@ -20,10 +20,10 @@ If something is wrong with the sign-in, **Manage Models...** in the model picker
 
 ## Install
 
-Download `ants-<version>.vsix` from the [latest release](https://github.com/spencrr/ants/releases/latest) and install it from the Extensions view (`...` → **Install from VSIX...**), or from a terminal:
+Ants needs VS Code 1.141 or newer. Download `ants-<version>.vsix` from the [latest release](https://github.com/spencrr/ants/releases/latest) and install it from the Extensions view (`...` → **Install from VSIX...**), or from a terminal:
 
 ```sh
-code --install-extension ants-0.1.0.vsix
+code --install-extension ants-0.2.0.vsix
 ```
 
 To build it yourself, run `npm ci` and `npm run package`. To try changes without installing, open this folder in VS Code and press <kbd>F5</kbd>. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
@@ -110,7 +110,7 @@ VS Code hands models from extensions to Copilot agent sessions through a small l
 
 The newest Claude models only accept earlier thinking while everything before it in the conversation is unchanged. Chat sometimes rewrites earlier turns, for example when it summarizes a long session. When Claude refuses earlier thinking for that reason, the extension retries once without it and notes that in the Ants output channel.
 
-The `vscode.proposed.*.d.ts` files are type definitions for the proposed APIs, matching VS Code 1.141. Run `npm run proposed-api` to download them again after changing the version in `package.json`.
+The `vscode.proposed.*.d.ts` files are type definitions for the proposed APIs, matching VS Code 1.143. Run `npm run proposed-api` to download them again after changing the version in `package.json`.
 
 If `ANTHROPIC_API_KEY` is set in the environment VS Code was started from, the SDK uses that key instead of your profile.
 
