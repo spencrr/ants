@@ -77,6 +77,11 @@ function writeProfile(credentials, { name = 'default', workspace = 'wrkspc_test'
 	);
 }
 
+/** The access token a profile's credentials file holds right now (the SDK saves refreshed ones there). */
+function tokenOf(name) {
+	return JSON.parse(fs.readFileSync(path.join(configDir, 'credentials', `${name}.json`), 'utf8')).access_token;
+}
+
 async function collect(response) {
 	const reply = { text: '', thinking: [], toolCalls: [], usage: undefined, parts: [] };
 	for await (const part of response.stream) {
@@ -249,16 +254,18 @@ async function withProposedApi() {
 	assert.strictEqual(seen['ants/Claude (Console)/claude-test-1'].detail, 'Claude (Console)');
 	log('ok - models come from groups only, and a group whose profile is missing says which profiles exist');
 
-	// Now sign in to the other workspace too, under its own profile.
-	const otherToken = 'sk-ant-oat01-other';
+	// Now sign in to the other workspace too, under its own profile. Its token is stale as well, so
+	// it has to be refreshed on its own, without touching the first profile's.
+	const defaultCredentialsBefore = fs.readFileSync(credentialsFile, 'utf8');
 	writeProfile(
-		{ access_token: otherToken, refresh_token: 'refresh-other', expires_at: now() + 3600 },
+		{ access_token: 'sk-ant-oat01-other-stale', refresh_token: 'refresh-other', expires_at: now() - 3600 },
 		{ name: 'other', workspace: 'wrkspc_other' },
 	);
 	models = await vscode.lm.selectChatModels({ vendor: 'ants' });
 	assert.deepStrictEqual(
 		models.map(m => m.id),
-		['claude-test-1', 'claude-haiku-5-5', 'claude-small', 'claude-other-1'],
+		['claude-test-1', 'claude-haiku-5-5', 'claude-small', 'claude-test-1', 'claude-other-1'],
+		'both workspaces have claude-test-1, and each is listed',
 	);
 	const other = models.find(m => m.id === 'claude-other-1');
 	seen = await waitFor(() => {
@@ -266,11 +273,53 @@ async function withProposedApi() {
 		return all?.['ants/Other org/claude-other-1'] ? all : undefined;
 	}, 'VS Code to log the other group');
 	assert.strictEqual(seen['ants/Other org/claude-other-1'].detail, 'Other org');
+	assert.strictEqual(seen['ants/Other org/claude-test-1'].detail, 'Other org');
 	const otherList = (await serverRequests()).filter(
 		r => r.path === '/v1/models' && r.headers['anthropic-workspace-id'] === 'wrkspc_other',
 	);
 	assert.ok(otherList.length > 0, 'the other workspace was asked for its models');
-	log('ok - a second group reaches a second profile, with its own workspace and models');
+	assert.deepStrictEqual(
+		(await serverRequests()).filter(r => r.path === '/v1/oauth/token').map(r => r.body.refresh_token),
+		['refresh-1', 'refresh-other'],
+		'each profile refreshes its own token',
+	);
+	assert.strictEqual(
+		fs.readFileSync(credentialsFile, 'utf8'),
+		defaultCredentialsBefore,
+		"the first profile's file is untouched",
+	);
+	assert.strictEqual(
+		otherList[0].headers.authorization,
+		`Bearer ${tokenOf('other')}`,
+		'the refreshed token was saved',
+	);
+	log('ok - a second group reaches a second profile, with its own workspace, models and token refresh');
+
+	// The same model in two groups: each copy goes to its own workspace, even side by side.
+	const twins = await vscode.lm.selectChatModels({ vendor: 'ants', id: 'claude-test-1' });
+	assert.strictEqual(twins.length, 2);
+	await queueMessages('echo', 'echo', 'echo');
+	const [replyOne, replyTwo] = await Promise.all(
+		twins.map(async twin =>
+			collect(await twin.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token())),
+		),
+	);
+	assert.deepStrictEqual([replyOne.text, replyTwo.text].sort(), ['from wrkspc_other', 'from wrkspc_test']);
+	const again = await collect(await twins[0].sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()));
+	assert.strictEqual(again.text, replyOne.text, 'the same copy always goes the same way');
+	const twinRequests = (await sentMessages()).slice(-3);
+	assert.deepStrictEqual(
+		twinRequests.map(r => r.body.model),
+		['claude-test-1', 'claude-test-1', 'claude-test-1'],
+	);
+	for (const r of twinRequests) {
+		assert.strictEqual(
+			r.headers.authorization,
+			`Bearer ${tokenOf(r.headers['anthropic-workspace-id'] === 'wrkspc_other' ? 'other' : 'default')}`,
+			"each request carries its own workspace's token",
+		);
+	}
+	log('ok - the same model in two groups is kept apart: own workspace, own token, side by side');
 
 	assert.deepStrictEqual(seen['ants/Claude (Console)/claude-test-1'].configurationSchema.properties.contextSize, {
 		type: 'number',
@@ -300,6 +349,7 @@ async function withProposedApi() {
 	// A request shaped the way agent sessions send it: a history pointer, a system prompt, earlier thinking,
 	// a mid-conversation reminder, tool results with images, an output limit, and an effort level.
 	// The API rejects the first attempt with 401, as if the token had been revoked.
+	const sentBefore = (await sentMessages()).length;
 	await queueMessages('401', 'thinking');
 	const replyA = await collect(
 		await model.sendRequest(
@@ -385,9 +435,9 @@ async function withProposedApi() {
 	);
 	log('ok - the usage log names the organization and workspace billed');
 
-	let sent = await sentMessages();
+	let sent = (await sentMessages()).slice(sentBefore);
 	assert.strictEqual(sent.length, 2, 'one retry after the 401');
-	assert.strictEqual(sent[1].headers.authorization, 'Bearer sk-ant-oat01-fresh-2');
+	assert.strictEqual(sent[1].headers.authorization, `Bearer ${tokenOf('default')}`);
 	const body = sent[1].body;
 	assert.strictEqual(body.model, 'claude-test-1');
 	assert.strictEqual(body.max_tokens, 1000, 'honors the output limit the caller asked for');
@@ -569,7 +619,7 @@ async function withProposedApi() {
 	assert.strictEqual(replyOther.text, 'Hello world ✓');
 	const sentOther = (await sentMessages()).at(-1);
 	assert.strictEqual(sentOther.headers['anthropic-workspace-id'], 'wrkspc_other');
-	assert.strictEqual(sentOther.headers.authorization, `Bearer ${otherToken}`);
+	assert.strictEqual(sentOther.headers.authorization, `Bearer ${tokenOf('other')}`);
 	assert.strictEqual(sentOther.body.model, 'claude-other-1');
 	assert.match(
 		await waitFor(() => antsLog().match(/claude-other-1 \[other\][^\n]*/)?.[0], 'the log line'),
@@ -584,32 +634,6 @@ async function withProposedApi() {
 		['other', 'Other Org', 'wrkspc_other'],
 	);
 	log('ok - requests through a group use its profile');
-
-	// When the API host can't be reached, say that, rather than blaming the sign-in. The client is
-	// made afresh after a failure, so fail the other profile once first, then point it at a dead port.
-	await queueMessages('401', '401');
-	await assert.rejects(
-		async () => collect(await other.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token())),
-		/sign-in for profile "other" has expired or was revoked/,
-	);
-	const otherConfig = path.join(configDir, 'configs', 'other.json');
-	fs.writeFileSync(otherConfig, fs.readFileSync(otherConfig, 'utf8').replace(api, 'http://127.0.0.1:9'));
-	await assert.rejects(
-		async () => collect(await other.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token())),
-		/Error: Couldn't reach http:\/\/127\.0\.0\.1:9: Connection error\./,
-	);
-	// Sign in to the other workspace again, which also puts its API host back.
-	writeProfile(
-		{ access_token: otherToken, refresh_token: 'refresh-other', expires_at: now() + 3600 },
-		{ name: 'other', workspace: 'wrkspc_other' },
-	);
-	await queueMessages('stream');
-	assert.strictEqual(
-		(await collect(await other.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()))).text,
-		'Hello world ✓',
-		'works again once the host is back',
-	);
-	log('ok - an unreachable API host is reported as such, and recovers without a reload');
 
 	// Signing in again fixes it without reloading. Then cancel a slow reply.
 	writeProfile({ access_token: 'sk-ant-oat01-new-login', refresh_token: 'refresh-new', expires_at: now() + 3600 });
@@ -648,6 +672,42 @@ async function withProposedApi() {
 	assert.deepStrictEqual([stopped.input, stopped.output, stopped.organization], [10, 4, 'Test Org']);
 	log('ok - signing in again works without a reload, and cancelling closes the connection');
 
+	// One profile's sign-in going bad leaves the other alone. The API says 401 twice for the other
+	// profile (once before and once after the SDK refreshes its token), while the first still works.
+	await queueMessages('401', '401');
+	await assert.rejects(
+		async () => collect(await other.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token())),
+		/sign-in for profile "other" has expired or was revoked/,
+	);
+	await queueMessages('echo');
+	assert.strictEqual(
+		(await collect(await model.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()))).text,
+		'from wrkspc_test',
+		'the first profile is unaffected',
+	);
+	log("ok - one profile's sign-in failing leaves the other working");
+
+	// When the API host can't be reached, say that, rather than blaming the sign-in. The client is
+	// made afresh after a failure, which the failure above just caused, so point it at a dead port.
+	const otherConfig = path.join(configDir, 'configs', 'other.json');
+	fs.writeFileSync(otherConfig, fs.readFileSync(otherConfig, 'utf8').replace(api, 'http://127.0.0.1:9'));
+	await assert.rejects(
+		async () => collect(await other.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token())),
+		/Error: Couldn't reach http:\/\/127\.0\.0\.1:9: Connection error\./,
+	);
+	// Sign in to the other workspace again, which also puts its API host back.
+	writeProfile(
+		{ access_token: 'sk-ant-oat01-other-again', refresh_token: 'refresh-other-2', expires_at: now() + 3600 },
+		{ name: 'other', workspace: 'wrkspc_other' },
+	);
+	await queueMessages('stream');
+	assert.strictEqual(
+		(await collect(await other.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()))).text,
+		'Hello world ✓',
+		'works again once the host is back',
+	);
+	log('ok - an unreachable API host is reported as such, and recovers without a reload');
+
 	// Switching the active profile on disk (`ant profile activate other`) moves groups with a blank profile
 	// along with it: the next request goes to the other workspace, and the models are listed again.
 	const otherListings = async () =>
@@ -660,7 +720,7 @@ async function withProposedApi() {
 	await collect(await model.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()));
 	const moved = (await sentMessages()).at(-1);
 	assert.strictEqual(moved.headers['anthropic-workspace-id'], 'wrkspc_other');
-	assert.strictEqual(moved.headers.authorization, `Bearer ${otherToken}`);
+	assert.strictEqual(moved.headers.authorization, `Bearer ${tokenOf('other')}`);
 	assert.match(antsLog(), /The active Anthropic profile changed from "default" to "other"./);
 	await waitFor(async () => (await otherListings()) > listingsBefore, 'the models to be listed again');
 	const recordedMove = await waitFor(() => {
@@ -720,7 +780,7 @@ async function withProposedApi() {
 	assert.deepStrictEqual(settings(), { byok: true, allowed: { 'spencrr.ants': true } });
 	log('ok - "Allow Claude in Copilot Agent Sessions" turns on both settings');
 
-	await expectAgentSessionsToOfferModels('Claude Test, Claude Haiku 5.5, Claude Small, Claude Other');
+	await expectAgentSessionsToOfferModels('Claude Test, Claude Haiku 5.5, Claude Small, Claude Test, Claude Other');
 }
 
 // VS Code treats models from any extension except Copilot Chat as bring-your-own-key models, which
@@ -804,7 +864,32 @@ async function withoutProposedApi() {
 	assert.match(status, /^- \*\*Copilot agent sessions:\*\* allowed, in this window and in the Agents window$/m);
 	log('ok - the connection status page works without the proposed APIs');
 
-	await expectAgentSessionsToOfferModels('Claude Test, Claude Haiku 5.5, Claude Small');
+	// A second group with a named profile needs no proposed API either: VS Code passes the group's
+	// configuration to the extension on stable VS Code as well.
+	writeProfile(
+		{ access_token: 'sk-ant-oat01-other', refresh_token: 'refresh-other', expires_at: now() + 3600 },
+		{ name: 'other', workspace: 'wrkspc_other' },
+	);
+	fs.writeFileSync(
+		groupsFile,
+		JSON.stringify([
+			{ name: 'My org', vendor: 'ants' },
+			{ name: 'Other org', vendor: 'ants', profile: 'other' },
+		]),
+	);
+	const otherModel = await waitFor(async () => {
+		const found = await vscode.lm.selectChatModels({ vendor: 'ants', id: 'claude-other-1' });
+		return found[0];
+	}, 'the other group to be picked up');
+	await queueMessages('echo');
+	assert.strictEqual(
+		(await collect(await otherModel.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()))).text,
+		'from wrkspc_other',
+	);
+	assert.strictEqual((await sentMessages()).at(-1).headers.authorization, `Bearer ${tokenOf('other')}`);
+	log('ok - a group with a named profile works without the proposed APIs too');
+
+	await expectAgentSessionsToOfferModels('Claude Test, Claude Haiku 5.5, Claude Small, Claude Test, Claude Other');
 }
 
 exports.run = async () => {

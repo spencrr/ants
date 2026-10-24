@@ -24,3 +24,5 @@ To try the extension itself, open the folder in VS Code and press <kbd>F5</kbd>.
 ## Releases
 
 Maintainers cut releases with `node scripts/release.mjs <version>` and push the tag; `.github/workflows/release.yml` builds the VSIX and publishes the GitHub Release.
+
+One thing the tests can't do: drive a Copilot agent session, which needs Copilot itself. So before a release, install the VSIX, open a Copilot agent session in the Agents window, and send one message through a model of each group in Manage Models. Then check in **Ants: Show Claude Usage** that each request shows under the right **Billed to**, and in **Ants: Connection Status** that no profile has a last error.

@@ -21,7 +21,7 @@ const root = path.dirname(here);
 const scratch = path.join(here, '.scratch');
 
 let requests = [];
-let messageQueue = []; // what /v1/messages does next: '401' | 'stream' | 'thinking' | 'reject-thinking' | 'slow'
+let messageQueue = []; // what /v1/messages does next: '401' | 'stream' | 'echo' | 'thinking' | 'reject-thinking' | 'slow'
 let issued = 0;
 
 function json(res, status, body) {
@@ -75,6 +75,20 @@ const toolUse = [
 ];
 
 const replies = {
+	// Says which workspace answered, so the suite can tell two groups' same-named models apart.
+	echo: workspace =>
+		message(
+			'msg_echo',
+			{ input_tokens: 10, output_tokens: 1 },
+			[
+				[
+					{ type: 'text', text: '' },
+					{ type: 'text_delta', text: `from ${workspace}` },
+				],
+			],
+			'end_turn',
+			3,
+		),
 	stream: () =>
 		message(
 			'msg_plain',
@@ -171,26 +185,6 @@ const server = http.createServer(async (req, res) => {
 	}
 
 	if (url.pathname === '/v1/models') {
-		// A second workspace, reached through a second profile, has one model of its own.
-		if (req.headers['anthropic-workspace-id'] === 'wrkspc_other') {
-			return json(res, 200, {
-				data: [
-					{
-						type: 'model',
-						id: 'claude-other-1',
-						display_name: 'Claude Other',
-						created_at: '2026-09-01T00:00:00Z',
-						lifecycle: 'active',
-						max_input_tokens: 200_000,
-						max_tokens: 8192,
-						capabilities: null,
-					},
-				],
-				has_more: false,
-				first_id: 'claude-other-1',
-				last_id: 'claude-other-1',
-			});
-		}
 		const level = supported => ({ supported });
 		const thinkingModel = {
 			image_input: level(true),
@@ -217,17 +211,31 @@ const server = http.createServer(async (req, res) => {
 			max_tokens: maxTokens,
 			capabilities,
 		});
+		const shared = model(
+			'claude-test-1',
+			'Claude Test',
+			'2026-07-24T00:00:00Z',
+			'active',
+			1_000_000,
+			64_000,
+			thinkingModel,
+		);
+		// A second workspace, reached through a second profile, has the same first model (as real
+		// organizations do) and one of its own.
+		if (req.headers['anthropic-workspace-id'] === 'wrkspc_other') {
+			return json(res, 200, {
+				data: [
+					shared,
+					model('claude-other-1', 'Claude Other', '2026-09-01T00:00:00Z', 'active', 200_000, 8192, null),
+				],
+				has_more: false,
+				first_id: 'claude-test-1',
+				last_id: 'claude-other-1',
+			});
+		}
 		return json(res, 200, {
 			data: [
-				model(
-					'claude-test-1',
-					'Claude Test',
-					'2026-07-24T00:00:00Z',
-					'active',
-					1_000_000,
-					64_000,
-					thinkingModel,
-				),
+				shared,
 				model(
 					'claude-haiku-5-5',
 					'Claude Haiku 5.5',
@@ -266,7 +274,7 @@ const server = http.createServer(async (req, res) => {
 			});
 		}
 		res.writeHead(200, { 'content-type': 'text/event-stream', 'request-id': 'req_test' });
-		const bytes = Buffer.from(replies[mode === 'slow' ? 'stream' : mode]());
+		const bytes = Buffer.from(replies[mode === 'slow' ? 'stream' : mode](req.headers['anthropic-workspace-id']));
 		if (mode === 'slow') {
 			// Send the first text delta, then hang until the client goes away.
 			res.write(bytes.subarray(0, bytes.indexOf('event: ping')));
