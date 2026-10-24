@@ -27,11 +27,20 @@ export interface UsageRecord {
 	output: number;
 	/** How long the request took, in milliseconds. */
 	ms: number;
-	/** Estimated cost in US dollars, from the price table at the time of the request. */
-	cost: number;
+	/** Estimated cost in US dollars from the price table at the time; absent when the model had no price. */
+	cost?: number;
+	/**
+	 * Absent when Claude answered. `cancelled` means the user stopped the reply; the token counts are
+	 * what had arrived by then, with the output estimated from the text when the API hadn't said yet.
+	 * `error` means the request failed, and the counts are zero because nothing is known.
+	 */
+	outcome?: 'cancelled' | 'error';
 }
 
-// Anthropic's list prices in dollars per million tokens, as of October 2026. Prices change,
+/** When the price table was last checked against Anthropic's pricing page. Shown next to every total. */
+export const PRICES_AS_OF = 'October 2026';
+
+// Anthropic's list prices in dollars per million tokens, as of PRICES_AS_OF. Prices change,
 // so treat totals as estimates. Models not listed here get no estimate, not a wrong one.
 const PRICES: Record<string, { input: number; cacheRead: number; cacheWrite: number; output: number }> = {
 	'claude-fable-5-1': { input: 10, cacheRead: 0.25, cacheWrite: 12.5, output: 50 },
@@ -52,18 +61,18 @@ const PRICES: Record<string, { input: number; cacheRead: number; cacheWrite: num
 	'claude-haiku-4-5': { input: 1, cacheRead: 0.1, cacheWrite: 1.25, output: 5 },
 };
 
-/** Estimated cost of one request in dollars, or 0 for a model with no known price. */
+/** Estimated cost of one request in dollars, or undefined for a model with no known price. */
 export function estimateCost(
 	model: string,
 	tokens: Pick<UsageRecord, 'input' | 'cacheRead' | 'cacheWrite' | 'output'>,
-): number {
+): number | undefined {
 	// Model ids can carry a date suffix, like claude-opus-4-5-20251101.
 	const key = Object.keys(PRICES)
 		.sort((a, b) => b.length - a.length)
 		.find(id => model === id || model.startsWith(`${id}-`));
 	let price = key ? PRICES[key] : undefined;
 	if (!price) {
-		return 0;
+		return undefined;
 	}
 	// Haiku 5.5 charges five times as much once a prompt passes 100K tokens.
 	if (key === 'claude-haiku-5-5' && tokens.input + tokens.cacheRead + tokens.cacheWrite > 100_000) {
@@ -108,6 +117,37 @@ export function surfaceOf(
 		return 'Agent session';
 	}
 	return requestInitiator;
+}
+
+const CSV_COLUMNS: (keyof UsageRecord)[] = [
+	'time',
+	'model',
+	'organization',
+	'workspace',
+	'profile',
+	'surface',
+	'session',
+	'effort',
+	'outcome',
+	'input',
+	'cacheRead',
+	'cacheWrite',
+	'output',
+	'ms',
+	'cost',
+];
+
+/** The records as a CSV file, one row each, for a spreadsheet. */
+export function toCsv(records: UsageRecord[]): string {
+	const cell = (value: unknown) => {
+		if (value === undefined) {
+			return '';
+		}
+		const text = String(value);
+		return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+	};
+	const rows = records.map(record => CSV_COLUMNS.map(column => cell(record[column])).join(','));
+	return [CSV_COLUMNS.join(','), ...rows].join('\r\n');
 }
 
 /** Append-only JSONL file of every request, kept in the extension's global storage. */

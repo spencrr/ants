@@ -4,7 +4,7 @@
 (() => {
 	const vscode = acquireVsCodeApi();
 
-	/** @typedef {{ time: string; model: string; profile?: string; organization?: string; workspace?: string; surface: string; session: string; effort?: string; input: number; cacheRead: number; cacheWrite: number; output: number; ms: number; cost: number }} Record */
+	/** @typedef {{ time: string; model: string; profile?: string; organization?: string; workspace?: string; surface: string; session: string; effort?: string; outcome?: 'cancelled' | 'error'; input: number; cacheRead: number; cacheWrite: number; output: number; ms: number; cost?: number }} Record */
 
 	/** How each breakdown reads in headings and filter crumbs. */
 	const DimensionNames = {
@@ -30,6 +30,12 @@
 	/** @type {Record[]} */
 	let all = [];
 	let logPath = '';
+	let pricesAsOf = '';
+
+	/** A record's estimated cost, with no price counting as nothing rather than as free. */
+	const costOf = r => r.cost ?? 0;
+	/** Whether a request used tokens the price table couldn't put a figure on. Older logs wrote 0 for that. */
+	const unpriced = r => (r.cost === undefined || r.cost === 0) && (r.input > 0 || r.output > 0);
 
 	// What the user has picked. Filters stack: range, then a clicked bucket, then clicked values.
 	const state = {
@@ -87,7 +93,7 @@
 		new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 	const measureOf = r =>
 		state.measure === 'cost'
-			? r.cost
+			? costOf(r)
 			: state.measure === 'tokens'
 				? r.input + r.cacheRead + r.cacheWrite + r.output
 				: 1;
@@ -244,17 +250,24 @@
 			sessions: new Set(),
 			requests: rows.length,
 			unpriced: 0,
+			cancelled: 0,
+			failed: 0,
 		};
 		for (const r of rows) {
-			t.cost += r.cost;
+			t.cost += costOf(r);
 			t.input += r.input;
 			t.cacheRead += r.cacheRead;
 			t.cacheWrite += r.cacheWrite;
 			t.output += r.output;
 			t.ms += r.ms;
 			t.sessions.add(r.session);
-			if (!r.cost && (r.input || r.output)) {
+			if (unpriced(r)) {
 				t.unpriced++;
+			}
+			if (r.outcome === 'cancelled') {
+				t.cancelled++;
+			} else if (r.outcome === 'error') {
+				t.failed++;
 			}
 		}
 		return t;
@@ -265,13 +278,25 @@
 		const prompt = t.input + t.cacheRead + t.cacheWrite;
 		// What the same prompts would have cost with no cache: every token at the full input price.
 		// Approximated from the ratio in this slice, good enough for a headline.
+		const prices = `list prices as of ${pricesAsOf}`;
 		const cards = [
 			[
 				'Estimated cost',
-				money(t.cost),
-				t.unpriced ? `${t.unpriced} requests have no price` : 'Anthropic list prices',
+				// With unpriced requests in the mix, the total is a floor, and says so.
+				`${t.unpriced ? '≥ ' : ''}${money(t.cost)}`,
+				t.unpriced ? `${count(t.unpriced)} unpriced · ${prices}` : `${prices}, before discounts`,
 			],
-			['Requests', count(t.requests), `${t.sessions.size} session${t.sessions.size === 1 ? '' : 's'}`],
+			[
+				'Requests',
+				count(t.requests),
+				[
+					`${t.sessions.size} session${t.sessions.size === 1 ? '' : 's'}`,
+					t.cancelled ? `${count(t.cancelled)} cancelled` : '',
+					t.failed ? `${count(t.failed)} failed` : '',
+				]
+					.filter(Boolean)
+					.join(' · '),
+			],
 			['Prompt tokens', tokens(prompt), `${pct(t.cacheRead, prompt)} from cache`],
 			[
 				'Output tokens',
@@ -424,7 +449,7 @@
 			const g = groups.get(key) ?? { key, value: 0, requests: 0, cost: 0 };
 			g.value += measureOf(r);
 			g.requests++;
-			g.cost += r.cost;
+			g.cost += costOf(r);
 			groups.set(key, g);
 		}
 		return [...groups.values()].sort((a, b) => b.value - a.value);
@@ -503,7 +528,7 @@
 					.map(r => ({
 						...r,
 						key: r.time,
-						label: when(r.time),
+						label: r.outcome ? `${when(r.time)} · ${r.outcome}` : when(r.time),
 						prompt: r.input + r.cacheRead + r.cacheWrite,
 						requests: 1,
 					}))
@@ -561,7 +586,7 @@
 			};
 			hr.appendChild(th);
 		}
-		const maxCost = Math.max(...data.map(d => d.cost), 0) || 1;
+		const maxCost = Math.max(...data.map(costOf), 0) || 1;
 		const tbody = table.createTBody();
 		for (const d of data.slice(0, 200)) {
 			const tr = tbody.insertRow();
@@ -581,10 +606,10 @@
 				}
 				const v = d[k];
 				if (k === 'cost') {
-					td.textContent = money(v);
+					td.textContent = detail && unpriced(d) ? 'no price' : money(costOf(d));
 					const mini = document.createElement('span');
 					mini.className = 'mini';
-					mini.style.width = `${Math.max(2, (v / maxCost) * 60)}px`;
+					mini.style.width = `${Math.max(2, (costOf(d) / maxCost) * 60)}px`;
 					mini.style.background = 'var(--c-bar)';
 					td.appendChild(mini);
 				} else if (k === 'ms') {
@@ -627,7 +652,7 @@
 			s.cacheRead += r.cacheRead;
 			s.output += r.output;
 			s.ms += r.ms;
-			s.cost += r.cost;
+			s.cost += costOf(r);
 			if (r.time < s.first) {
 				s.first = r.time;
 			}
@@ -678,6 +703,7 @@
 		state.dimension = v;
 	});
 	$('openLog').onclick = () => vscode.postMessage({ type: 'openLog' });
+	$('exportCsv').onclick = () => vscode.postMessage({ type: 'exportCsv', records: visible() });
 	window.addEventListener('resize', () => renderTimeline(visible()));
 
 	window.addEventListener('message', e => {
@@ -685,6 +711,7 @@
 		if (msg.type === 'records') {
 			all = msg.records.sort((a, b) => a.time.localeCompare(b.time));
 			logPath = msg.path;
+			pricesAsOf = msg.pricesAsOf;
 			$('openLog').title = logPath;
 			render();
 		} else if (msg.type === 'append') {

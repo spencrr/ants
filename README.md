@@ -91,7 +91,9 @@ The **Ants** output channel says whether they're on. Without them, everything el
 
 Run **Ants: Show Claude Usage** to open a panel with your spend, token counts, and cache hit rate. Pick a time range, switch between cost, tokens, and requests, break the numbers down by model, who was billed (organization and workspace), surface, effort, or session, and click a session to see each request in it. Drag across the chart to zoom in on a stretch of time.
 
-The costs are estimates from Anthropic's list prices, which are written into `src/usageLog.ts` and can go stale. Check against the Console's Cost page when it matters. Every request is appended to `usage.jsonl` in the extension's global storage folder, with the organization and workspace it was billed to; **Open log** in the panel shows the file.
+The costs are estimates from Anthropic's list prices, before any discount your organization has. The prices are written into `src/usageLog.ts` with the month they were last checked, which the panel shows; they can go stale, so check against the Console's Cost page when it matters. A model the table doesn't know is counted as *unpriced*, not as free, and the total becomes a floor (`≥ $12.34 · 3 unpriced`). Requests you stop part-way are logged with what had arrived, since that is billed too, and failed requests are logged with nothing counted; the Requests card says how many of each.
+
+Every request is appended to `usage.jsonl` in the extension's global storage folder, with the organization and workspace it was billed to; **Open log** in the panel shows the file, and **Export CSV** saves the rows in view, filters and all, for a spreadsheet.
 
 Only this extension knows what your Console account pays. The Session Cost that VS Code shows in agent sessions counts Copilot credits, which your Claude (Console) requests never use, so in a session that mixes both it shows only the Copilot part.
 

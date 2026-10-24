@@ -435,6 +435,24 @@ async function withProposedApi() {
 	]);
 	log('ok - request matches the Messages API: system prompt, thinking, effort, tools, images, merged tool results');
 
+	// A model the price table doesn't know gets no cost, rather than a cost of nothing. One it knows
+	// gets an estimate, and the same rows come out as CSV for a spreadsheet.
+	assert.strictEqual(recorded.cost, undefined, 'claude-test-1 has no list price');
+	await queueMessages('stream');
+	await collect(await models[1].sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()));
+	const priced = await waitFor(() => {
+		const last = usageRecords().at(-1);
+		return last?.model === 'claude-haiku-5-5' ? last : undefined;
+	}, 'the usage record');
+	assert.ok(priced.cost > 0 && priced.cost < 0.001, `Haiku 5.5 is priced: ${priced.cost}`);
+	const { toCsv } = require('../out/usageLog.js');
+	assert.deepStrictEqual(toCsv([recorded, priced]).split('\r\n').length, 3);
+	assert.match(
+		toCsv([{ ...priced, organization: 'Test, Inc.' }]).split('\r\n')[1],
+		/^[^,]+,claude-haiku-5-5,"Test, Inc\.",wrkspc_test,,[^,]+,[0-9a-f]+,medium,,10,0,0,12,\d+,0\.000007$/,
+	);
+	log('ok - unknown prices stay unknown, known ones are estimated, and rows export as CSV');
+
 	// Hand the reply back as the next turn, the way chat does. The newest models refuse earlier
 	// thinking when something before it changed, so the first attempt fails and is retried without it.
 	await queueMessages('reject-thinking', 'stream');
@@ -520,6 +538,15 @@ async function withProposedApi() {
 			assert.match(error.message, /Details: .*revoked/, 'keeps the underlying reason');
 			return true;
 		},
+	);
+	const failedRecord = await waitFor(() => {
+		const last = usageRecords().at(-1);
+		return last?.outcome === 'error' ? last : undefined;
+	}, 'the failed request to be logged');
+	assert.deepStrictEqual(
+		[failedRecord.model, failedRecord.organization, failedRecord.input, failedRecord.output, failedRecord.cost],
+		['claude-test-1', 'Test Org', 0, 0, undefined],
+		'a failed request is logged with nothing counted',
 	);
 	log('ok - an expired sign-in fails with instructions for signing in again');
 
@@ -611,6 +638,14 @@ async function withProposedApi() {
 		'Bearer sk-ant-oat01-new-login',
 		'uses the new sign-in from disk',
 	);
+	// What had arrived before the stop is billed all the same, so it goes in the log: the prompt
+	// tokens from the start of the message, and the output estimated from the text that got
+	// through ("Hello world ✓", 13 characters) since the API only counts it at the end.
+	const stopped = await waitFor(() => {
+		const last = usageRecords().at(-1);
+		return last?.outcome === 'cancelled' ? last : undefined;
+	}, 'the cancelled request to be logged');
+	assert.deepStrictEqual([stopped.input, stopped.output, stopped.organization], [10, 4, 'Test Org']);
 	log('ok - signing in again works without a reload, and cancelling closes the connection');
 
 	// Switching the active profile on disk (`ant profile activate other`) moves groups with a blank profile

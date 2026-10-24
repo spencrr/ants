@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { activeProfileName, type Identity, identityOf } from './identity.js';
 import { allowAgentSessions, offerFirstGroup, offerSetup, signInHelp } from './onboarding.js';
 import { type ProfileStatus, registerStatus } from './status.js';
-import { estimateCost, sessionOf, surfaceOf, UsageLog } from './usageLog.js';
+import { estimateCost, sessionOf, surfaceOf, UsageLog, type UsageRecord } from './usageLog.js';
 import { UsagePanel } from './usagePanel.js';
 
 // The prompt and the reply have to fit in the context window together, so reserve
@@ -15,6 +15,9 @@ const EFFORT_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extr
 type Effort = keyof typeof EFFORT_LABELS;
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+/** What a request that never got an answer used, as far as anyone knows. */
+const NO_TOKENS = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
 
 /** A model as VS Code sees it, plus what this extension offers for it. */
 interface ClaudeModel extends vscode.LanguageModelChatInformation {
@@ -280,24 +283,47 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 			output_config: effort ? { effort } : undefined,
 		};
 
-		let connection: Connection;
+		const request = {
+			model: model.id,
+			profile: model.profile,
+			surface: surfaceOf(options.modelOptions, options.requestInitiator),
+			session: sessionOf(options.modelOptions, messages),
+			effort,
+		};
+		let connection: Connection | undefined;
 		let reply: Anthropic.Message;
 		try {
 			connection = await this.connect(model.profile);
 			reply = await this.streamWithRetry(connection.client, body, progress, token);
 		} catch (error) {
 			if (token.isCancellationRequested) {
-				// The user stopped the reply; nothing is wrong with the sign-in.
+				// The user stopped the reply before anything arrived; nothing is wrong with the sign-in.
+				this.record(request, started, 'cancelled', NO_TOKENS, await connection?.identity);
 				throw error;
 			}
+			const identity = await connection?.identity;
 			const explained = await this.failed(model.profile, error);
 			this.log.error(`${model.id} failed: ${messageOf(explained)}`);
+			this.record(request, started, 'error', NO_TOKENS, identity);
 			throw explained;
 		}
 
 		const { usage } = reply;
 		const cachedTokens = usage.cache_read_input_tokens ?? 0;
-		const promptTokens = usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + cachedTokens;
+		const tokenCounts = {
+			input: usage.input_tokens,
+			cacheRead: cachedTokens,
+			cacheWrite: usage.cache_creation_input_tokens ?? 0,
+			output: usage.output_tokens,
+		};
+		const promptTokens = tokenCounts.input + tokenCounts.cacheWrite + cachedTokens;
+		if (token.isCancellationRequested) {
+			// Stopped part-way: what had arrived is still billed, so it still counts.
+			this.log.info(`${model.id}: stopped after ${promptTokens} tokens in, about ${usage.output_tokens} out`);
+			this.record(request, started, 'cancelled', tokenCounts, await this.worked(connection, model.profile));
+			return;
+		}
+
 		// Copilot Chat and agent sessions read token counts from a 'usage' part, in OpenAI's format.
 		progress.report(
 			new vscode.LanguageModelDataPart(
@@ -315,30 +341,31 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 
 		const seconds = ((Date.now() - started) / 1000).toFixed(1);
 		const cutOff = reply.stop_reason === 'max_tokens' ? ', cut off at the output limit' : '';
-		const tokenCounts = {
-			input: usage.input_tokens,
-			cacheRead: cachedTokens,
-			cacheWrite: usage.cache_creation_input_tokens ?? 0,
-			output: usage.output_tokens,
-		};
 		const cost = estimateCost(model.id, tokenCounts);
 		this.log.info(
 			`${model.id}${model.profile ? ` [${model.profile}]` : ''}${effort ? ` (${effort} effort)` : ''}: ${seconds}s, ${promptTokens} tokens in (${cachedTokens} cached), ${usage.output_tokens} out${cutOff}${cost ? `, about $${cost.toFixed(cost < 0.1 ? 3 : 2)}` : ''}`,
 		);
-		const identity = await this.worked(connection, model.profile);
+		this.record(request, started, undefined, tokenCounts, await this.worked(connection, model.profile));
+	}
+
+	/** Appends one request to the usage log, with who it was billed to when that is known. */
+	private record(
+		request: Pick<UsageRecord, 'model' | 'profile' | 'surface' | 'session' | 'effort'>,
+		started: number,
+		outcome: UsageRecord['outcome'],
+		tokens: Pick<UsageRecord, 'input' | 'cacheRead' | 'cacheWrite' | 'output'>,
+		identity: Identity | undefined,
+	) {
 		this.usage
 			.append({
 				time: new Date().toISOString(),
-				model: model.id,
-				profile: model.profile,
-				organization: identity.organizationName ?? identity.organizationId,
-				workspace: identity.workspaceId,
-				surface: surfaceOf(options.modelOptions, options.requestInitiator),
-				session: sessionOf(options.modelOptions, messages),
-				effort,
-				...tokenCounts,
+				...request,
+				organization: identity?.organizationName ?? identity?.organizationId,
+				workspace: identity?.workspaceId,
+				outcome,
+				...tokens,
 				ms: Date.now() - started,
-				cost,
+				cost: outcome === 'error' ? undefined : estimateCost(request.model, tokens),
 			})
 			.catch(error => this.log.warn(`Couldn't write the usage log: ${messageOf(error)}`));
 	}
@@ -364,6 +391,10 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		}
 	}
 
+	/**
+	 * Streams one request. When the user stops it part-way, resolves to what Claude had sent so
+	 * far, with the output count estimated from the text, since the API only reports it at the end.
+	 */
 	private async stream(
 		client: Anthropic,
 		body: Anthropic.MessageStreamParams,
@@ -372,9 +403,13 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 	): Promise<Anthropic.Message> {
 		const stream = client.messages.stream(body);
 		token.onCancellationRequested(() => stream.abort());
+		let soFar: Anthropic.Message | undefined;
+		let streamed = 0;
 
 		stream.on('streamEvent', (event, reply) => {
+			soFar = reply;
 			if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+				streamed += event.delta.text.length;
 				progress.report(new vscode.LanguageModelTextPart(event.delta.text));
 			} else if (
 				event.type === 'content_block_delta' &&
@@ -400,7 +435,15 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 			}
 		});
 
-		return await stream.finalMessage();
+		try {
+			return await stream.finalMessage();
+		} catch (error) {
+			if (token.isCancellationRequested && soFar) {
+				const output = Math.max(soFar.usage.output_tokens, Math.ceil(streamed / 4));
+				return { ...soFar, usage: { ...soFar.usage, output_tokens: output } };
+			}
+			throw error;
+		}
 	}
 
 	provideTokenCount(_model: ClaudeModel, input: string | vscode.LanguageModelChatRequestMessage): Thenable<number> {

@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import * as vscode from 'vscode';
-import type { UsageLog } from './usageLog.js';
+import { PRICES_AS_OF, toCsv, type UsageLog, type UsageRecord } from './usageLog.js';
 
 /** The Claude Usage panel: a webview that reads the usage log and lets you slice it. */
 export class UsagePanel {
@@ -52,11 +52,26 @@ export class UsagePanel {
 			.replaceAll('{{style}}', styleUri.toString());
 	}
 
-	private async onMessage(message: { type: string }) {
+	private async onMessage(message: { type: string; records?: UsageRecord[] }) {
 		if (message.type === 'load') {
-			this.panel.webview.postMessage({ type: 'records', records: await this.log.readAll(), path: this.log.path });
+			this.panel.webview.postMessage({
+				type: 'records',
+				records: await this.log.readAll(),
+				path: this.log.path,
+				pricesAsOf: PRICES_AS_OF,
+			});
 		} else if (message.type === 'openLog') {
 			await vscode.window.showTextDocument(vscode.Uri.file(this.log.path));
+		} else if (message.type === 'exportCsv' && message.records) {
+			// The page sends the rows in view, filters and all.
+			const target = await vscode.window.showSaveDialog({
+				defaultUri: vscode.Uri.file(`claude-usage-${new Date().toISOString().slice(0, 10)}.csv`),
+				filters: { CSV: ['csv'] },
+			});
+			if (target) {
+				await writeFile(target.fsPath, toCsv(message.records));
+				await vscode.window.showTextDocument(target);
+			}
 		}
 	}
 
