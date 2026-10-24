@@ -1,37 +1,14 @@
-import { access, readdir, readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
+import { anthropicConfigDir, profilesOnDisk } from './identity.js';
 
 export const EXTENSION_ID = 'spencrr.ants';
 
 const SIGN_IN_STEPS =
 	'Run `claude` in a terminal, type /login, and choose "Anthropic Console account", then ' +
 	'"Sign in with your Console account". (`ant auth login` works too.)';
-
-/** The names of the Anthropic profiles on this machine, from the config files alone. */
-export async function profilesOnDisk(): Promise<string[]> {
-	try {
-		const files = await readdir(join(anthropicConfigDir(), 'configs'));
-		return files
-			.filter(file => file.endsWith('.json'))
-			.map(file => file.slice(0, -'.json'.length))
-			.sort();
-	} catch {
-		return [];
-	}
-}
-
-/** The folder where Claude Code and the `ant` CLI keep the sign-in, the same way the SDK finds it. */
-export function anthropicConfigDir() {
-	if (process.env.ANTHROPIC_CONFIG_DIR) {
-		return process.env.ANTHROPIC_CONFIG_DIR;
-	}
-	if (process.platform === 'win32') {
-		return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Anthropic');
-	}
-	return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'anthropic');
-}
 
 /**
  * Explains why there's no usable sign-in, in terms of what the user actually did. The SDK's own
@@ -156,9 +133,16 @@ export async function offerFirstGroup(context: vscode.ExtensionContext, log: vsc
 
 /** Whether Copilot agent sessions, in this window and in the Agents window, may use the models. */
 export function agentSessionsAllowed() {
-	const byok = vscode.workspace.getConfiguration('chat').get<boolean>('agentHost.byokModels.enabled') === true;
-	const allowed = allowedInAgentsWindow()[EXTENSION_ID] === true;
+	const { byok, allowed } = agentSessionSettings();
 	return byok && allowed;
+}
+
+/** The two settings agent sessions need: the bring-your-own-key switch and the Agents window allow-list. */
+export function agentSessionSettings() {
+	return {
+		byok: vscode.workspace.getConfiguration('chat').get<boolean>('agentHost.byokModels.enabled') === true,
+		allowed: allowedInAgentsWindow()[EXTENSION_ID] === true,
+	};
 }
 
 /** Turns on the two settings agent sessions need. The `ants.allowAgentSessions` command. */

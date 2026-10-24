@@ -156,6 +156,20 @@ const server = http.createServer(async (req, res) => {
 		});
 	}
 
+	// Who the token belongs to, the way Claude Code asks. Each workspace is in its own organization.
+	if (url.pathname === '/api/oauth/profile') {
+		const other = req.headers['anthropic-workspace-id'] === 'wrkspc_other';
+		return json(res, 200, {
+			account: { uuid: 'acct_test', email: other ? 'me@other.example' : 'me@test.example', display_name: 'Me' },
+			organization: {
+				uuid: other ? '11111111-1111-1111-1111-111111111111' : '00000000-0000-0000-0000-000000000000',
+				name: other ? 'Other Org' : 'Test Org',
+				organization_type: 'api_team',
+				billing_type: 'usage_based',
+			},
+		});
+	}
+
 	if (url.pathname === '/v1/models') {
 		// A second workspace, reached through a second profile, has one model of its own.
 		if (req.headers['anthropic-workspace-id'] === 'wrkspc_other') {

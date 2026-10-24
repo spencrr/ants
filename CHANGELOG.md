@@ -5,7 +5,9 @@ All notable changes to Ants are recorded here. The format follows [Keep a Change
 ## Unreleased
 
 ### Added
-- Several organizations or workspaces at once. Each group under **Manage Models → Add Models → Claude (Console)** names an Anthropic profile (`ant auth login --profile <name>`); its models are listed under the group's name in chat and agent sessions, and requests through it are billed to that organization. A group with no profile uses the active sign-in. The usage panel breaks spend down by profile.
+- Several organizations or workspaces at once. Each group under **Manage Models → Add Models → Claude (Console)** names an Anthropic profile (`ant auth login --profile <name>`); its models are listed under the group's name in chat and agent sessions, and requests through it are billed to that organization. A group with no profile uses the active sign-in, and follows it when it changes (`ant profile activate`, or a new sign-in): the next request goes to the new workspace and the models are listed again.
+- **Ants: Connection Status**: for each group's profile, the organization and workspace billed, the account, when the credentials were last saved, the API host, and the last error, plus the profiles on this machine no group uses and the state of the VS Code settings agent sessions need.
+- Every usage record now names the organization and workspace it was billed to, and the usage panel breaks spend down by them (**Billed to**) instead of by profile name. Records from before this change show the profile name, or "(active sign-in)".
 - On first run, an offer to turn on the two settings Copilot agent sessions need, and a pointer to `argv.json` when the proposed APIs are off. Each can be dismissed for good. **Ants: Allow Claude in Copilot Agent Sessions** does the same from the command palette.
 
 ### Changed

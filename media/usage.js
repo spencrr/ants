@@ -4,10 +4,28 @@
 (() => {
 	const vscode = acquireVsCodeApi();
 
-	/** @typedef {{ time: string; model: string; profile?: string; surface: string; session: string; effort?: string; input: number; cacheRead: number; cacheWrite: number; output: number; ms: number; cost: number }} Record */
+	/** @typedef {{ time: string; model: string; profile?: string; organization?: string; workspace?: string; surface: string; session: string; effort?: string; input: number; cacheRead: number; cacheWrite: number; output: number; ms: number; cost: number }} Record */
 
-	// Requests made through the active Anthropic profile carry no profile name.
-	const ActiveProfile = '(active)';
+	/** How each breakdown reads in headings and filter crumbs. */
+	const DimensionNames = {
+		model: 'model',
+		account: 'organization',
+		surface: 'surface',
+		effort: 'effort',
+		session: 'session',
+	};
+	const dimensionName = dim => DimensionNames[dim] ?? dim;
+
+	/**
+	 * Who a request was billed to. Records since 0.2 name the organization and workspace; older
+	 * ones only have the profile the group named, or nothing for the active sign-in.
+	 */
+	function billedTo(record) {
+		if (record.organization) {
+			return record.workspace ? `${record.organization} · …${record.workspace.slice(-6)}` : record.organization;
+		}
+		return record.profile ?? '(active sign-in)';
+	}
 
 	/** @type {Record[]} */
 	let all = [];
@@ -108,7 +126,7 @@
 
 	/** A record's value along one breakdown dimension, with the label used when it has none. */
 	function dimensionValue(record, dim) {
-		return record[dim] ?? (dim === 'profile' ? ActiveProfile : '—');
+		return dim === 'account' ? billedTo(record) : (record[dim] ?? '—');
 	}
 
 	/** Records after every filter. */
@@ -199,7 +217,7 @@
 			});
 		}
 		for (const [dim, value] of state.filters) {
-			add(`${dim}: ${value}`, () => state.filters.delete(dim));
+			add(`${dimensionName(dim)}: ${value}`, () => state.filters.delete(dim));
 		}
 		if (state.zoom || state.filters.size > 0) {
 			const clear = document.createElement('button');
@@ -414,7 +432,7 @@
 
 	function renderBreakdown(rows) {
 		const dim = state.dimension;
-		$('dimLabel').textContent = dim;
+		$('dimLabel').textContent = dimensionName(dim);
 		const groups = groupBy(rows, dim).slice(0, 12);
 		const max = groups[0]?.value || 1;
 		const total = groups.reduce((s, g) => s + g.value, 0);
@@ -422,7 +440,7 @@
 			...groups.map(g => {
 				const row = document.createElement('div');
 				row.className = 'bar-row';
-				row.title = `Filter to ${dim} = ${g.key}`;
+				row.title = `Filter to ${dimensionName(dim)} = ${g.key}`;
 				row.innerHTML = `<span class="name"></span><div class="track"><div class="fill"></div></div><span class="num"></span>`;
 				row.children[0].textContent = dim === 'model' ? shortModel(g.key) : g.key;
 				row.children[0].title = g.key;

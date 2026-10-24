@@ -49,7 +49,8 @@ async function queueMessages(...modes) {
 }
 
 // What `claude` /login or `ant auth login` leaves behind, pointed at the fake API. The default
-// profile is the active one; `ant auth login --profile other` adds a second, for another workspace.
+// profile is the active one; `ant auth login --profile other` adds a second, for another workspace
+// in another organization.
 function writeProfile(credentials, { name = 'default', workspace = 'wrkspc_test' } = {}) {
 	fs.mkdirSync(path.join(configDir, 'configs'), { recursive: true });
 	fs.mkdirSync(path.join(configDir, 'credentials'), { recursive: true });
@@ -58,7 +59,10 @@ function writeProfile(credentials, { name = 'default', workspace = 'wrkspc_test'
 		path.join(configDir, 'configs', `${name}.json`),
 		JSON.stringify({
 			version: '1.0',
-			organization_id: '00000000-0000-0000-0000-000000000000',
+			organization_id:
+				workspace === 'wrkspc_other'
+					? '11111111-1111-1111-1111-111111111111'
+					: '00000000-0000-0000-0000-000000000000',
 			workspace_id: workspace,
 			base_url: api,
 			authentication: { type: 'user_oauth', client_id: 'test-client-id' },
@@ -120,6 +124,19 @@ function agentHostCatalog() {
 		}
 	}
 	return { latest, files: files.map(f => path.relative(logsDir, f)) };
+}
+
+// The usage log the extension appends to, one JSON record per request.
+function usageRecords() {
+	const { publisher, name } = require('../package.json');
+	const file = path.join(process.env.LOGS_DIR, '..', 'User', 'globalStorage', `${publisher}.${name}`, 'usage.jsonl');
+	return fs.existsSync(file)
+		? fs
+				.readFileSync(file, 'utf8')
+				.split('\n')
+				.filter(Boolean)
+				.map(line => JSON.parse(line))
+		: [];
 }
 
 // What the extension wrote to its own output channel.
@@ -184,7 +201,7 @@ async function withProposedApi() {
 	);
 	assert.strictEqual(models[0].maxInputTokens, 1_000_000 - 32_000);
 	assert.strictEqual(models[2].maxInputTokens, 200_000 - 8192);
-	const [model, , small] = models;
+	let [model, , small] = models;
 
 	const requests = await serverRequests();
 	assert.deepStrictEqual(
@@ -337,6 +354,24 @@ async function withProposedApi() {
 		prompt_tokens_details: { cached_tokens: 1000 },
 	});
 	log('ok - reports token usage, cache reads included, the way chat and agent sessions read it');
+
+	// The usage log says who paid: the organization and workspace behind the group's sign-in.
+	const recorded = await waitFor(() => usageRecords().at(-1), 'the usage record');
+	assert.deepStrictEqual(
+		[recorded.model, recorded.profile, recorded.organization, recorded.workspace, recorded.effort],
+		['claude-test-1', undefined, 'Test Org', 'wrkspc_test', 'medium'],
+	);
+	assert.deepStrictEqual(
+		[recorded.input, recorded.cacheRead, recorded.cacheWrite, recorded.output],
+		[10, 1000, 100, 42],
+	);
+	const lookups = (await serverRequests()).filter(r => r.path === '/api/oauth/profile');
+	assert.deepStrictEqual(
+		lookups.map(r => r.headers['anthropic-workspace-id']),
+		['wrkspc_test', 'wrkspc_other'],
+		'one account lookup per profile, after its models were listed',
+	);
+	log('ok - the usage log names the organization and workspace billed');
 
 	let sent = await sentMessages();
 	assert.strictEqual(sent.length, 2, 'one retry after the 401');
@@ -501,6 +536,14 @@ async function withProposedApi() {
 		await waitFor(() => antsLog().match(/claude-other-1 \[other\][^\n]*/)?.[0], 'the log line'),
 		/tokens in/,
 	);
+	const recordedOther = await waitFor(() => {
+		const last = usageRecords().at(-1);
+		return last?.model === 'claude-other-1' ? last : undefined;
+	}, 'the usage record');
+	assert.deepStrictEqual(
+		[recordedOther.profile, recordedOther.organization, recordedOther.workspace],
+		['other', 'Other Org', 'wrkspc_other'],
+	);
 	log('ok - requests through a group use its profile');
 
 	// Signing in again fixes it without reloading. Then cancel a slow reply.
@@ -531,6 +574,58 @@ async function withProposedApi() {
 		'uses the new sign-in from disk',
 	);
 	log('ok - signing in again works without a reload, and cancelling closes the connection');
+
+	// Switching the active profile on disk (`ant profile activate other`) moves groups with a blank profile
+	// along with it: the next request goes to the other workspace, and the models are listed again.
+	const otherListings = async () =>
+		(await serverRequests()).filter(
+			r => r.path === '/v1/models' && r.headers['anthropic-workspace-id'] === 'wrkspc_other',
+		).length;
+	const listingsBefore = await otherListings();
+	fs.writeFileSync(path.join(configDir, 'active_config'), 'other');
+	await queueMessages('stream');
+	await collect(await model.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()));
+	const moved = (await sentMessages()).at(-1);
+	assert.strictEqual(moved.headers['anthropic-workspace-id'], 'wrkspc_other');
+	assert.strictEqual(moved.headers.authorization, `Bearer ${otherToken}`);
+	assert.match(antsLog(), /The active Anthropic profile changed from "default" to "other"./);
+	await waitFor(async () => (await otherListings()) > listingsBefore, 'the models to be listed again');
+	const recordedMove = await waitFor(() => {
+		const last = usageRecords().at(-1);
+		return last?.organization === 'Other Org' && last.profile === undefined ? last : undefined;
+	}, 'the usage record');
+	assert.strictEqual(recordedMove.workspace, 'wrkspc_other');
+	let status = await vscode.commands.executeCommand('ants.showStatus');
+	assert.match(status, /^## Active sign-in \(`other`\)$/m);
+	// Back to the first profile for the rest of the run. The group's models changed with the switch, so the
+	// old handle is gone; listing them again notices the switch back and brings the first set back.
+	fs.writeFileSync(path.join(configDir, 'active_config'), 'default');
+	model = await waitFor(async () => {
+		const found = await vscode.lm.selectChatModels({ vendor: 'ants', id: 'claude-test-1' });
+		return found[0];
+	}, "the first profile's models to come back");
+	await queueMessages('stream');
+	await collect(await model.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()));
+	assert.strictEqual((await sentMessages()).at(-1).headers['anthropic-workspace-id'], 'wrkspc_test');
+	log('ok - a group with a blank profile follows the active sign-in when it changes, without a reload');
+
+	// The status page: who each group bills, from the config files and the account lookup.
+	status = await vscode.commands.executeCommand('ants.showStatus');
+	assert.match(status, /^## Active sign-in \(`default`\)$/m);
+	assert.match(status, /^- \*\*Organization:\*\* Test Org \(`00000000-0000-0000-0000-000000000000`\)$/m);
+	assert.match(status, /^- \*\*Workspace:\*\* `wrkspc_test`$/m);
+	assert.match(status, /^- \*\*Account:\*\* me@test.example$/m);
+	assert.match(
+		status,
+		/^- \*\*Sign-in:\*\* browser sign-in; credentials last saved .+ \(the sign-in, or the last token refresh\)$/m,
+	);
+	assert.match(status, /^## Profile `other`$/m);
+	assert.match(status, /^- \*\*Organization:\*\* Other Org \(`11111111-1111-1111-1111-111111111111`\)$/m);
+	assert.doesNotMatch(status, /\*\*Last error:\*\* (?!none)/, 'errors from before the sign-ins worked are forgotten');
+	assert.match(status, /^- \*\*Proposed APIs:\*\* on/m);
+	assert.match(status, /^- \*\*Copilot agent sessions:\*\* not yet: .*supportAgentsWindow/m);
+	assert.doesNotMatch(status, /Profiles with no group/, 'every profile on disk has a group');
+	log('ok - the connection status page names the organization, workspace and account of each group');
 
 	assert.strictEqual(await model.countTokens('abcdefghi'), 3);
 	log('ok - token count estimate');
@@ -569,6 +664,10 @@ async function withoutProposedApi() {
 	assert.deepStrictEqual(await vscode.lm.selectChatModels({ vendor: 'ants' }), [], 'nothing without a group');
 	assert.strictEqual((await serverRequests()).length, 0, 'and no request to Anthropic either');
 	await waitFor(() => antsLog().includes('Offering to add the first one'), 'the offer to add a group');
+	assert.match(
+		await vscode.commands.executeCommand('ants.showStatus'),
+		/No group in Manage Models has asked for models yet/,
+	);
 	log('ok - with no group yet there are no models, and the extension offers to add the first one');
 
 	// Add the group the way Manage Models > Add Models would. VS Code watches the file.
@@ -619,6 +718,13 @@ async function withoutProposedApi() {
 	assert.strictEqual(body.thinking, undefined);
 	assert.strictEqual(body.output_config, undefined);
 	log('ok - chat works, and no thinking or effort is sent or shown');
+
+	const status = await vscode.commands.executeCommand('ants.showStatus');
+	assert.match(status, /^## Active sign-in \(`default`\)$/m);
+	assert.match(status, /^- \*\*Organization:\*\* Test Org /m);
+	assert.match(status, /^- \*\*Proposed APIs:\*\* off\. Add `"enable-proposed-api"/m);
+	assert.match(status, /^- \*\*Copilot agent sessions:\*\* allowed, in this window and in the Agents window$/m);
+	log('ok - the connection status page works without the proposed APIs');
 
 	await expectAgentSessionsToOfferModels('Claude Test, Claude Haiku 5.5, Claude Small');
 }

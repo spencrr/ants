@@ -8,8 +8,12 @@ export interface UsageRecord {
 	/** When the request finished, as ISO 8601. */
 	time: string;
 	model: string;
-	/** The Anthropic profile (organization or workspace) billed; absent for the active one. */
+	/** The Anthropic profile the group named; absent when it left the field blank (the active sign-in). */
 	profile?: string;
+	/** The organization billed, by name when the API told us, else by id. Absent before 0.2. */
+	organization?: string;
+	/** The workspace billed, by id. Absent before 0.2, and when the organization default is used. */
+	workspace?: string;
 	/** Where the request came from: the chat view, an agent session, or another extension. */
 	surface: string;
 	/** Groups requests from one conversation. */

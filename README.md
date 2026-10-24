@@ -37,7 +37,13 @@ A Console sign-in is bound to one workspace, so each organization or workspace y
 1. Sign in to the other workspace under a profile name: `ant auth login --profile acme` (or run `claude /login` again). Your first sign-in is the profile called `default`, and stays the active one.
 2. In **Manage Models...**, click **Add Models** → **Claude (Console)**, name the group (**ACME**) and enter the profile name (`acme`).
 
-Each group lists that workspace's models, labelled with the group's name, in chat and in agent sessions alike. Requests through a group are billed to its organization, and the usage panel breaks spend down by profile. `ant profile list` shows the profiles on this machine; if a group names one that doesn't exist, Manage Models says so and lists the ones that do.
+Each group lists that workspace's models, labelled with the group's name, in chat and in agent sessions alike. Requests through a group are billed to its organization, and the usage panel breaks spend down by who was billed. `ant profile list` shows the profiles on this machine; if a group names one that doesn't exist, Manage Models says so and lists the ones that do.
+
+A group with an empty profile follows your active profile. If you switch it (`ant profile activate acme`, or a new sign-in), that group moves with it: the next request goes to the new workspace, and the group's models are listed again. Name the profile in the group when you want it pinned.
+
+### Who is being billed
+
+Run **Ants: Connection Status** to see, for each group's profile, the organization and workspace its requests are billed to, the account that signed in, when its credentials were last saved (the sign-in, or the last token refresh), the API host, and the last error. It also lists profiles on this machine that no group uses, and whether the VS Code settings for agent sessions and the proposed APIs are in place. The organization and account names come from the API; the ids come from the profile's config file. Nothing on the page reads a token.
 
 ### Copilot agent sessions and the Agents window
 
@@ -83,15 +89,15 @@ The **Ants** output channel says whether they're on. Without them, everything el
 
 ### Usage and cost
 
-Run **Ants: Show Claude Usage** to open a panel with your spend, token counts, and cache hit rate. Pick a time range, switch between cost, tokens, and requests, break the numbers down by model, profile, surface, effort, or session, and click a session to see each request in it. Drag across the chart to zoom in on a stretch of time.
+Run **Ants: Show Claude Usage** to open a panel with your spend, token counts, and cache hit rate. Pick a time range, switch between cost, tokens, and requests, break the numbers down by model, who was billed (organization and workspace), surface, effort, or session, and click a session to see each request in it. Drag across the chart to zoom in on a stretch of time.
 
-The costs are estimates from Anthropic's list prices, which are written into `src/usageLog.ts` and can go stale. Check against the Console's Cost page when it matters. Every request is appended to `usage.jsonl` in the extension's global storage folder; **Open log** in the panel shows the file.
+The costs are estimates from Anthropic's list prices, which are written into `src/usageLog.ts` and can go stale. Check against the Console's Cost page when it matters. Every request is appended to `usage.jsonl` in the extension's global storage folder, with the organization and workspace it was billed to; **Open log** in the panel shows the file.
 
 Only this extension knows what your Console account pays. The Session Cost that VS Code shows in agent sessions counts Copilot credits, which your Claude (Console) requests never use, so in a session that mixes both it shows only the Copilot part.
 
 ## How it works
 
-Everything in `src/` is small: `extension.ts` is the model provider, `onboarding.ts` works out what's missing from the setup and says so, `usageLog.ts` keeps the request log and price table, and `usagePanel.ts` with the files in `media/` is the usage view. The provider implements VS Code's [`LanguageModelChatProvider`](https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider):
+Everything in `src/` is small: `extension.ts` is the model provider, `identity.ts` works out who a profile bills, `status.ts` is the connection status page, `onboarding.ts` works out what's missing from the setup and says so, `usageLog.ts` keeps the request log and price table, and `usagePanel.ts` with the files in `media/` is the usage view. The provider implements VS Code's [`LanguageModelChatProvider`](https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider):
 
 - It lists your models from `/v1/models`, once per group in Manage Models, along with their context windows and which effort levels and kinds of thinking each one supports. Each group names an Anthropic profile, and VS Code keeps the groups apart (`ants/<group>/<model>`).
 - It converts VS Code chat messages (system prompt, earlier thinking, tool calls and results, images) to the Messages API format.

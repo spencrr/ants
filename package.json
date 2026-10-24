@@ -47,6 +47,7 @@
   "activationEvents": [
     "onLanguageModelChatProvider:ants",
     "onCommand:ants.showUsage",
+    "onCommand:ants.showStatus",
     "onCommand:ants.allowAgentSessions"
   ],
   "contributes": {
@@ -72,6 +73,12 @@
         "title": "Show Claude Usage",
         "category": "Ants",
         "icon": "$(graph)"
+      },
+      {
+        "command": "ants.showStatus",
+        "title": "Connection Status",
+        "category": "Ants",
+        "icon": "$(account)"
       },
       {
         "command": "ants.allowAgentSessions",

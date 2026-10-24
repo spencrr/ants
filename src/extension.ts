@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import * as vscode from 'vscode';
+import { activeProfileName, type Identity, identityOf } from './identity.js';
 import { allowAgentSessions, offerFirstGroup, offerSetup, signInHelp } from './onboarding.js';
+import { type ProfileStatus, registerStatus } from './status.js';
 import { estimateCost, sessionOf, surfaceOf, UsageLog } from './usageLog.js';
 import { UsagePanel } from './usagePanel.js';
 
@@ -33,6 +35,23 @@ interface ModelListOptions extends vscode.PrepareLanguageModelChatModelOptions {
 	readonly configuration?: { readonly profile?: unknown };
 }
 
+/** The SDK client for one Anthropic profile, and who it bills. */
+interface Connection {
+	readonly client: Anthropic;
+	/** The profile the client was built for: the named one, or the active one at the time. */
+	readonly profile: string;
+	/** Looked up after the first successful call. Never rejects. */
+	identity?: Promise<Identity>;
+}
+
+/** What the extension knows about one profile that groups in Manage Models name. */
+interface ProfileState {
+	/** The profile the group asked for; undefined when it left the field blank. */
+	readonly named: string | undefined;
+	connection?: Connection;
+	lastError?: string;
+}
+
 export function activate(context: vscode.ExtensionContext) {
 	const log = vscode.window.createOutputChannel('Ants', { log: true });
 
@@ -55,22 +74,30 @@ export function activate(context: vscode.ExtensionContext) {
 			log.warn(`Couldn't offer to add the first group: ${messageOf(error)}`),
 		);
 	});
-	context.subscriptions.push(log, vscode.lm.registerLanguageModelChatProvider('ants', provider));
+	context.subscriptions.push(log, provider, vscode.lm.registerLanguageModelChatProvider('ants', provider));
 	context.subscriptions.push(
 		vscode.commands.registerCommand('ants.showUsage', () => UsagePanel.show(context, usage)),
 		vscode.commands.registerCommand('ants.allowAgentSessions', allowAgentSessions),
 	);
+	registerStatus(context, {
+		profiles: () => provider.profileStatuses(),
+		useProposedApi,
+		usageLogPath: usage.path,
+		version: context.extension.packageJSON.version,
+	});
 
 	// Agent sessions and the proposed APIs each need a setting changed by hand. Say so once.
 	offerSetup(context, useProposedApi).catch(error => log.warn(`Setup prompt failed: ${messageOf(error)}`));
 }
 
-class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel> {
-	// One SDK client per Anthropic profile. With no profile named, the SDK uses your active one
-	// (the one Claude Code and the `ant` CLI share). It refreshes tokens as needed, and reads the
-	// profile when it's created, so after a failure the client is dropped in case you've signed
-	// in since.
-	private readonly clients = new Map<string, Anthropic>();
+class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel>, vscode.Disposable {
+	// One SDK client per Anthropic profile, keyed by the name the group gave ('' for none). With
+	// no profile named, the SDK uses your active one (the one Claude Code and the `ant` CLI
+	// share). It refreshes tokens as needed, and reads the profile when it's created, so after
+	// a failure the client is dropped in case you've signed in since.
+	private readonly profiles = new Map<string, ProfileState>();
+	private readonly changed = new vscode.EventEmitter<void>();
+	readonly onDidChangeLanguageModelChatInformation = this.changed.event;
 
 	constructor(
 		private readonly log: vscode.LogOutputChannel,
@@ -78,6 +105,10 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		private readonly usage: UsageLog,
 		private readonly onNoGroups: () => void,
 	) {}
+
+	dispose() {
+		this.changed.dispose();
+	}
 
 	async provideLanguageModelChatInformation(options: ModelListOptions): Promise<ClaudeModel[]> {
 		// Every model belongs to a group from Manage Models, one per profile (organization or
@@ -91,12 +122,13 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 
 		const models: Anthropic.ModelInfo[] = [];
 		try {
-			for await (const model of this.clientFor(profile).models.list()) {
+			const connection = await this.connect(profile);
+			for await (const model of connection.client.models.list()) {
 				models.push(model);
 			}
+			this.worked(connection, profile);
 		} catch (error) {
-			this.forget(profile);
-			const explained = await withSignInHelp(error, profile);
+			const explained = await this.failed(profile, error);
 			this.log.error(
 				`Couldn't list models${profile ? ` for profile "${profile}"` : ''}: ${messageOf(explained)}`,
 			);
@@ -106,18 +138,59 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		return models.filter(model => model.lifecycle !== 'retired').map(model => this.toChatModel(model, profile));
 	}
 
-	private clientFor(profile: string | undefined) {
-		const key = profile ?? '';
-		let client = this.clients.get(key);
-		if (!client) {
-			client = profile ? new Anthropic({ profile }) : new Anthropic();
-			this.clients.set(key, client);
+	/** The connection for a group's profile, made on first use or after a failure. */
+	private async connect(named: string | undefined): Promise<Connection> {
+		const key = named ?? '';
+		let state = this.profiles.get(key);
+		if (!state) {
+			state = { named };
+			this.profiles.set(key, state);
 		}
-		return client;
+		// A blank profile follows the active sign-in, which `ant profile activate` or a new login
+		// can change underneath a client that has already read the old one.
+		const profile = named ?? (await activeProfileName());
+		if (state.connection && state.connection.profile !== profile) {
+			this.log.info(`The active Anthropic profile changed from "${state.connection.profile}" to "${profile}".`);
+			state.connection = undefined;
+			this.changed.fire();
+		}
+		if (!state.connection) {
+			state.connection = { client: named ? new Anthropic({ profile: named }) : new Anthropic(), profile };
+		}
+		return state.connection;
 	}
 
-	private forget(profile: string | undefined) {
-		this.clients.delete(profile ?? '');
+	/** Drops the profile's client, remembers the error, and swaps in an explanation. */
+	private async failed(named: string | undefined, error: unknown): Promise<unknown> {
+		const explained = await withSignInHelp(error, named);
+		const state = this.profiles.get(named ?? '');
+		if (state) {
+			state.connection = undefined;
+			state.lastError = messageOf(explained).split('\n')[0];
+		}
+		return explained;
+	}
+
+	/** A call through the connection succeeded: the last error is history, and the identity is worth looking up. */
+	private worked(connection: Connection, named: string | undefined): Promise<Identity> {
+		const state = this.profiles.get(named ?? '');
+		if (state) {
+			state.lastError = undefined;
+		}
+		connection.identity ??= identityOf(connection.client, named, connection.profile);
+		return connection.identity;
+	}
+
+	/** One entry per profile a group has asked for, for the connection status page. */
+	profileStatuses(): Promise<ProfileStatus[]> {
+		return Promise.all(
+			[...this.profiles.values()].map(async ({ named, connection, lastError }) => ({
+				named,
+				profile: connection?.profile,
+				identity: await connection?.identity,
+				lastError,
+			})),
+		);
 	}
 
 	private toChatModel(model: Anthropic.ModelInfo, profile: string | undefined): ClaudeModel {
@@ -198,12 +271,17 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 			output_config: effort ? { effort } : undefined,
 		};
 
+		let connection: Connection;
 		let reply: Anthropic.Message;
 		try {
-			reply = await this.streamWithRetry(model.profile, body, progress, token);
+			connection = await this.connect(model.profile);
+			reply = await this.streamWithRetry(connection.client, body, progress, token);
 		} catch (error) {
-			this.forget(model.profile);
-			const explained = await withSignInHelp(error, model.profile);
+			if (token.isCancellationRequested) {
+				// The user stopped the reply; nothing is wrong with the sign-in.
+				throw error;
+			}
+			const explained = await this.failed(model.profile, error);
 			this.log.error(`${model.id} failed: ${messageOf(explained)}`);
 			throw explained;
 		}
@@ -238,11 +316,14 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		this.log.info(
 			`${model.id}${model.profile ? ` [${model.profile}]` : ''}${effort ? ` (${effort} effort)` : ''}: ${seconds}s, ${promptTokens} tokens in (${cachedTokens} cached), ${usage.output_tokens} out${cutOff}${cost ? `, about $${cost.toFixed(cost < 0.1 ? 3 : 2)}` : ''}`,
 		);
+		const identity = await this.worked(connection, model.profile);
 		this.usage
 			.append({
 				time: new Date().toISOString(),
 				model: model.id,
 				profile: model.profile,
+				organization: identity.organizationName ?? identity.organizationId,
+				workspace: identity.workspaceId,
 				surface: surfaceOf(options.modelOptions, options.requestInitiator),
 				session: sessionOf(options.modelOptions, messages),
 				effort,
@@ -255,13 +336,13 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 
 	/** Streams Claude's reply into chat, retrying once without earlier thinking if Claude refuses it. */
 	private async streamWithRetry(
-		profile: string | undefined,
+		client: Anthropic,
 		body: Anthropic.MessageStreamParams,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart2>,
 		token: vscode.CancellationToken,
 	): Promise<Anthropic.Message> {
 		try {
-			return await this.stream(profile, body, progress, token);
+			return await this.stream(client, body, progress, token);
 		} catch (error) {
 			const refusedThinking = error instanceof Anthropic.BadRequestError && /thinking/i.test(error.message);
 			if (!(refusedThinking && body.messages.some(hasThinking))) {
@@ -270,17 +351,17 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 			// The newest models only accept earlier thinking while everything before it is unchanged,
 			// and chat sometimes rewrites earlier turns, for example when it summarizes a long session.
 			this.log.warn(`Retrying without earlier thinking, which Claude refused: ${messageOf(error)}`);
-			return this.stream(profile, { ...body, messages: withoutThinking(body.messages) }, progress, token);
+			return this.stream(client, { ...body, messages: withoutThinking(body.messages) }, progress, token);
 		}
 	}
 
 	private async stream(
-		profile: string | undefined,
+		client: Anthropic,
 		body: Anthropic.MessageStreamParams,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart2>,
 		token: vscode.CancellationToken,
 	): Promise<Anthropic.Message> {
-		const stream = this.clientFor(profile).messages.stream(body);
+		const stream = client.messages.stream(body);
 		token.onCancellationRequested(() => stream.abort());
 
 		stream.on('streamEvent', (event, reply) => {
