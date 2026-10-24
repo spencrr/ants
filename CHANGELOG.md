@@ -4,6 +4,8 @@ All notable changes to Ants are recorded here. The format follows [Keep a Change
 
 ## Unreleased
 
+## [0.2.0] - 2026-10-24
+
 ### Added
 - Several organizations or workspaces at once. Each group under **Manage Models → Add Models → Claude (Console)** names an Anthropic profile (`ant auth login --profile <name>`); its models are listed under the group's name in chat and agent sessions, and requests through it are billed to that organization. A group with no profile uses the active sign-in, and follows it when it changes (`ant profile activate`, or a new sign-in): the next request goes to the new workspace and the models are listed again.
 - **Ants: Connection Status**: for each group's profile, the organization and workspace billed, the account, when the credentials were last saved, the API host, and the last error, plus the profiles on this machine no group uses and the state of the VS Code settings agent sessions need.
@@ -30,5 +32,7 @@ First release.
 - System prompts, tool calls and results, images (PNG, JPEG, GIF, WebP) and prompt caching, mapped to the Messages API; token usage reported back so chat can show how full the context is.
 - **Ants: Show Claude Usage**: a panel over an append-only `usage.jsonl` log with cost estimates from Anthropic's list prices, token mix and cache hit rate, a time range and a zoomable timeline, and breakdowns by model, surface, effort and session down to single requests. Live-updates as requests finish.
 
-[unreleased]: https://github.com/spencrr/ants/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/spencrr/ants/releases/tag/v0.1.0
+
+[unreleased]: https://github.com/spencrr/ants/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/spencrr/ants/compare/v0.1.0...v0.2.0
