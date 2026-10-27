@@ -140,10 +140,18 @@ const CSV_COLUMNS: (keyof UsageRecord)[] = [
 /** The records as a CSV file, one row each, for a spreadsheet. */
 export function toCsv(records: UsageRecord[]): string {
 	const cell = (value: unknown) => {
-		if (value === undefined) {
+		if (value === undefined || value === null) {
 			return '';
 		}
-		const text = String(value);
+		if (typeof value === 'number') {
+			return Number.isFinite(value) ? String(value) : '';
+		}
+		let text = String(value);
+		// Spreadsheets run text that starts like a formula. Model and organization names come
+		// from the API, so give such cells a leading apostrophe, which spreadsheets read as "text".
+		if (/^[=+\-@\t\r]/.test(text)) {
+			text = `'${text}`;
+		}
 		return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 	};
 	const rows = records.map(record => CSV_COLUMNS.map(column => cell(record[column])).join(','));

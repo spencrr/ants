@@ -4,6 +4,9 @@ All notable changes to Ants are recorded here. The format follows [Keep a Change
 
 ## Unreleased
 
+### Fixed
+- CSV export marks cells a spreadsheet would otherwise read as a formula as text.
+
 ## [0.2.0] - 2026-10-24
 
 ### Added

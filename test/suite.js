@@ -501,6 +501,10 @@ async function withProposedApi() {
 		toCsv([{ ...priced, organization: 'Test, Inc.' }]).split('\r\n')[1],
 		/^[^,]+,claude-haiku-5-5,"Test, Inc\.",wrkspc_test,,[^,]+,[0-9a-f]+,medium,,10,0,0,12,\d+,0\.000007$/,
 	);
+	// Text a spreadsheet would run as a formula is marked as text; numbers are left alone.
+	const formulaRow = toCsv([{ ...priced, model: "=cmd|'/C calc'!A0", organization: '+1', ms: -1 }]).split('\r\n')[1];
+	assert.match(formulaRow, /^[^,]+,'=cmd\|'\/C calc'!A0,'\+1,wrkspc_test,/);
+	assert.match(formulaRow, /,-1,0\.000007$/);
 	log('ok - unknown prices stay unknown, known ones are estimated, and rows export as CSV');
 
 	// Hand the reply back as the next turn, the way chat does. The newest models refuse earlier
