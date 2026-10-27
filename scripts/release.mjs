@@ -2,11 +2,14 @@
 // biome-ignore-all lint/suspicious/noConsole: a release script reports what it does.
 /**
  * Bumps the version, moves the CHANGELOG's "Unreleased" section under the new version, commits and tags. Pushing the
- * tag starts .github/workflows/release.yml.
+ * tag starts .github/workflows/release.yml, which builds from the tagged commit once CI has passed on it.
  *
  *   node scripts/release.mjs 0.2.0            # exact version
  *   node scripts/release.mjs patch|minor|major
  *   node scripts/release.mjs 0.2.0 --dry-run  # show the changes, write nothing
+ *
+ * Patches normally come from main. When main carries unfinished work, branch from the last tag instead
+ * (`git switch -c release/0.2 v0.2.0`), cherry-pick the fix with -x, and run this script there.
  */
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -85,7 +88,12 @@ execFileSync(
 git('add', '--', ...edits.keys(), 'package-lock.json');
 git('commit', '-m', `Release ${next}`);
 git('tag', '-a', `v${next}`, '-m', `Ants ${next}`);
-console.log(`\nCommitted and tagged v${next}. Push with:\n  git push origin main v${next}`);
+const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
+console.log(
+	`\nCommitted and tagged v${next}. Push the branch, then the tag once CI is green (the release workflow waits for it anyway):\n` +
+		`  git push origin ${branch}\n  git push origin v${next}\n` +
+		'The release then waits for your approval in the "release" environment on GitHub.',
+);
 
 function bump(version, how) {
 	const [major, minor, patch] = version.split('.').map(Number);

@@ -11,6 +11,11 @@ on:
     paths: [".github/**"]
   workflow_dispatch:
 
+# A newer run on the same branch supersedes an older one.
+concurrency:
+  group: zizmor-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -19,9 +24,9 @@ jobs:
     name: Lint the workflows
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      security-events: write
-      actions: read
+      contents: read # checkout
+      security-events: write # upload the SARIF to code scanning
+      actions: read # the upload needs to read the run it belongs to
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

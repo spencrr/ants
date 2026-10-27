@@ -23,10 +23,10 @@ If something is wrong with the sign-in, **Manage Models...** in the model picker
 Ants needs VS Code 1.141 or newer. Download `ants-<version>.vsix` from the [latest release](https://github.com/spencrr/ants/releases/latest) and install it from the Extensions view (`...` → **Install from VSIX...**), or from a terminal:
 
 ```sh
-code --install-extension ants-0.2.0.vsix
+code --install-extension ants-0.2.1.vsix
 ```
 
-It isn't on the Marketplace: the effort picker, context size and thinking use VS Code's proposed APIs, and the Marketplace doesn't take extensions that do. Each release comes with a `SHA256SUMS.txt` for the VSIX.
+It isn't on the Marketplace: the effort picker, context size and thinking use VS Code's proposed APIs, and the Marketplace doesn't take extensions that do. Releases are immutable and built by GitHub Actions, so you can check a download with the [GitHub CLI](https://cli.github.com/): `gh release verify-asset v0.2.1 ants-0.2.1.vsix` confirms it is the file the release published, and `gh attestation verify ants-0.2.1.vsix --owner spencrr` that the release workflow built it from this repository.
 
 To build it yourself, run `npm ci` and `npm run package`. To try changes without installing, open this folder in VS Code and press <kbd>F5</kbd>. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
 

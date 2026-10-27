@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # release/* branches exist only when a fix has to ship while main carries unfinished work.
+    branches: [main, "release/*"]
   pull_request:
   workflow_dispatch:
 
@@ -26,7 +27,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          cache: npm
+          package-manager-cache: false
       # No dependency needs an install script (see allowScripts in package.json); skipping them everywhere closes
       # the usual npm supply-chain vector regardless of the runner's npm version.
       - run: npm ci --ignore-scripts
@@ -47,7 +48,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          cache: npm
+          package-manager-cache: false
       - run: npm ci --ignore-scripts
       # The test starts a real VS Code, which needs a display on Linux.
       - run: xvfb-run -a npm test
@@ -74,7 +75,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          cache: npm
+          package-manager-cache: false
       - run: npm ci --ignore-scripts
       - run: npm run package
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
