@@ -309,17 +309,18 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		}
 
 		const { usage } = reply;
-		const cachedTokens = usage.cache_read_input_tokens ?? 0;
+		// Only counts that are counts: anything else from the API is treated as "none".
+		const cachedTokens = countOf(usage.cache_read_input_tokens);
 		const tokenCounts = {
-			input: usage.input_tokens,
+			input: countOf(usage.input_tokens),
 			cacheRead: cachedTokens,
-			cacheWrite: usage.cache_creation_input_tokens ?? 0,
-			output: usage.output_tokens,
+			cacheWrite: countOf(usage.cache_creation_input_tokens),
+			output: countOf(usage.output_tokens),
 		};
 		const promptTokens = tokenCounts.input + tokenCounts.cacheWrite + cachedTokens;
 		if (token.isCancellationRequested) {
 			// Stopped part-way: what had arrived is still billed, so it still counts.
-			this.log.info(`${model.id}: stopped after ${promptTokens} tokens in, about ${usage.output_tokens} out`);
+			this.log.info(`${model.id}: stopped after ${promptTokens} tokens in, about ${tokenCounts.output} out`);
 			this.record(request, started, 'cancelled', tokenCounts, await this.worked(connection, model.profile));
 			return;
 		}
@@ -330,8 +331,8 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 				Buffer.from(
 					JSON.stringify({
 						prompt_tokens: promptTokens,
-						completion_tokens: usage.output_tokens,
-						total_tokens: promptTokens + usage.output_tokens,
+						completion_tokens: tokenCounts.output,
+						total_tokens: promptTokens + tokenCounts.output,
 						prompt_tokens_details: { cached_tokens: cachedTokens },
 					}),
 				),
@@ -343,7 +344,7 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		const cutOff = reply.stop_reason === 'max_tokens' ? ', cut off at the output limit' : '';
 		const cost = estimateCost(model.id, tokenCounts);
 		this.log.info(
-			`${model.id}${model.profile ? ` [${model.profile}]` : ''}${effort ? ` (${effort} effort)` : ''}: ${seconds}s, ${promptTokens} tokens in (${cachedTokens} cached), ${usage.output_tokens} out${cutOff}${cost ? `, about $${cost.toFixed(cost < 0.1 ? 3 : 2)}` : ''}`,
+			`${model.id}${model.profile ? ` [${model.profile}]` : ''}${effort ? ` (${effort} effort)` : ''}: ${seconds}s, ${promptTokens} tokens in (${cachedTokens} cached), ${tokenCounts.output} out${cutOff}${cost ? `, about $${cost.toFixed(cost < 0.1 ? 3 : 2)}` : ''}`,
 		);
 		this.record(request, started, undefined, tokenCounts, await this.worked(connection, model.profile));
 	}
@@ -439,7 +440,7 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 			return await stream.finalMessage();
 		} catch (error) {
 			if (token.isCancellationRequested && soFar) {
-				const output = Math.max(soFar.usage.output_tokens, Math.ceil(streamed / 4));
+				const output = Math.max(countOf(soFar.usage.output_tokens), Math.ceil(streamed / 4));
 				return { ...soFar, usage: { ...soFar.usage, output_tokens: output } };
 			}
 			throw error;
@@ -608,6 +609,11 @@ function formatTokens(count: number) {
 
 function messageOf(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
+}
+
+/** A token count from the API, or 0 when the API sent something that isn't one. */
+function countOf(value: unknown): number {
+	return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 }
 
 /** The profile a Manage Models group names, or undefined for the active one. */

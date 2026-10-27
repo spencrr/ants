@@ -21,7 +21,7 @@ const root = path.dirname(here);
 const scratch = path.join(here, '.scratch');
 
 let requests = [];
-let messageQueue = []; // what /v1/messages does next: '401' | 'stream' | 'echo' | 'thinking' | 'reject-thinking' | 'slow'
+let messageQueue = []; // what /v1/messages does next: '401' | 'stream' | 'echo' | 'odd-usage' | 'thinking' | 'reject-thinking' | 'slow'
 let issued = 0;
 
 function json(res, status, body) {
@@ -75,6 +75,20 @@ const toolUse = [
 ];
 
 const replies = {
+	// Token counts that aren't numbers, from a server that isn't behaving.
+	'odd-usage': () =>
+		message(
+			'msg_odd',
+			{ input_tokens: '<b>x</b>', cache_read_input_tokens: -5, output_tokens: 1 },
+			[
+				[
+					{ type: 'text', text: '' },
+					{ type: 'text_delta', text: 'odd' },
+				],
+			],
+			'end_turn',
+			'12',
+		),
 	// Says which workspace answered, so the suite can tell two groups' same-named models apart.
 	echo: workspace =>
 		message(

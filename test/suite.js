@@ -507,6 +507,25 @@ async function withProposedApi() {
 	assert.match(formulaRow, /,-1,0\.000007$/);
 	log('ok - unknown prices stay unknown, known ones are estimated, and rows export as CSV');
 
+	// Token counts that aren't numbers count as none, in the usage part and in the log alike.
+	await queueMessages('odd-usage');
+	const odd = await collect(await small.sendRequest([vscode.LanguageModelChatMessage.User('hi')], {}, token()));
+	assert.deepStrictEqual(odd.usage, {
+		prompt_tokens: 0,
+		completion_tokens: 0,
+		total_tokens: 0,
+		prompt_tokens_details: { cached_tokens: 0 },
+	});
+	const oddRecord = await waitFor(() => {
+		const last = usageRecords().at(-1);
+		return last?.model === 'claude-small' ? last : undefined;
+	}, 'the usage record');
+	assert.deepStrictEqual(
+		[oddRecord.input, oddRecord.cacheRead, oddRecord.cacheWrite, oddRecord.output],
+		[0, 0, 0, 0],
+	);
+	log('ok - token counts that are not numbers are counted as none');
+
 	// Hand the reply back as the next turn, the way chat does. The newest models refuse earlier
 	// thinking when something before it changed, so the first attempt fails and is retried without it.
 	await queueMessages('reject-thinking', 'stream');

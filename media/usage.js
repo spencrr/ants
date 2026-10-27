@@ -365,10 +365,7 @@
 			rect.setAttribute('y', String(pad.top + h - Math.max(barH, b.requests ? 2 : 0)));
 			rect.setAttribute('height', String(Math.max(barH, b.requests ? 2 : 0)));
 			rect.addEventListener('mousemove', e =>
-				showTip(
-					e,
-					`${bucketLabel(b.from, size)}<br><b>${formatMeasure(b.value)}</b> · ${count(b.requests)} requests`,
-				),
+				showTip(e, bucketLabel(b.from, size), formatMeasure(b.value), `· ${count(b.requests)} requests`),
 			);
 			rect.addEventListener('mouseleave', hideTip);
 			rect.addEventListener('click', () => {
@@ -668,8 +665,11 @@
 		}));
 	}
 
-	function showTip(e, html) {
-		tip.innerHTML = html;
+	/** Tooltip of a heading line, a bold figure, and a trailing note, all as text. */
+	function showTip(e, heading, figure, note) {
+		const strong = document.createElement('b');
+		strong.textContent = figure;
+		tip.replaceChildren(heading, document.createElement('br'), strong, ` ${note}`);
 		tip.hidden = false;
 		tip.style.left = `${e.clientX + 12}px`;
 		tip.style.top = `${e.clientY + 12}px`;
@@ -706,16 +706,30 @@
 	$('exportCsv').onclick = () => vscode.postMessage({ type: 'exportCsv', records: visible() });
 	window.addEventListener('resize', () => renderTimeline(visible()));
 
+	/** A record as the page relies on it: the counts are numbers, whatever the log line said. */
+	function normalize(record) {
+		const n = v => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+		return {
+			...record,
+			input: n(record.input),
+			cacheRead: n(record.cacheRead),
+			cacheWrite: n(record.cacheWrite),
+			output: n(record.output),
+			ms: n(record.ms),
+			cost: record.cost === undefined || record.cost === null ? undefined : n(record.cost),
+		};
+	}
+
 	window.addEventListener('message', e => {
 		const msg = e.data;
 		if (msg.type === 'records') {
-			all = msg.records.sort((a, b) => a.time.localeCompare(b.time));
+			all = msg.records.map(normalize).sort((a, b) => a.time.localeCompare(b.time));
 			logPath = msg.path;
 			pricesAsOf = msg.pricesAsOf;
 			$('openLog').title = logPath;
 			render();
 		} else if (msg.type === 'append') {
-			all.push(msg.record);
+			all.push(normalize(msg.record));
 			render();
 		}
 	});

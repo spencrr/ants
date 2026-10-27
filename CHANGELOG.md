@@ -6,6 +6,7 @@ All notable changes to Ants are recorded here. The format follows [Keep a Change
 
 ### Fixed
 - CSV export marks cells a spreadsheet would otherwise read as a formula as text.
+- Token counts the API reports as anything other than a number are counted as none, rather than passed on.
 
 ## [0.2.0] - 2026-10-24
 
