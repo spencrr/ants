@@ -1,0 +1,7 @@
+# zizmor already requires hash-pinned `uses:` by default (>= 1.20); stated here so it survives a
+# default change and so the intent is visible next to the workflows.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin

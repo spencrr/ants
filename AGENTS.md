@@ -52,6 +52,7 @@ One TypeScript package, compiled with `tsc` to `out/` (CommonJS, `module: node16
 - No `Co-authored-by` trailers in commits. Subjects are plain sentences in the imperative or descriptive mood, like the existing history.
 - Git hooks (`lefthook.yml`): Biome on staged files at commit, `npm run typecheck` at push. `LEFTHOOK=0` skips once. `npm ci --ignore-scripts` needs a manual `npx lefthook install`.
 - Node policy: `engines.node` is the floor (22.13), `.node-version` and `@types/node` track it. Dependabot groups dev-tooling minors and patches; majors are taken deliberately. Actions are pinned to commit SHAs. `npm ci --ignore-scripts` in CI; no dependency may need an install script (`allowScripts`).
+- Workflows: every checkout sets `persist-credentials: false` (nothing pushes), and the release workflow uses no npm cache (a poisoned entry would end up in the VSIX). `zizmor` checks them (`uvx zizmor .github/workflows`; `zizmor.yml` runs it on changes under `.github/`, with `.github/zizmor.yml` requiring hash pins). CodeQL's default setup covers the TypeScript and the workflows. Branch rulesets on `main` require CI before a pull request merges and block force-pushes and deletion; the repository admin can push directly.
 - User-visible changes get a line under **Unreleased** in `CHANGELOG.md` and, where users would look for them, in `README.md`.
 
 ## Gotchas

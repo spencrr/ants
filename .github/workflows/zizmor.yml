@@ -1,0 +1,29 @@
+name: zizmor
+
+# Static analysis of the workflows in this folder: unpinned actions, template injection, kept
+# credentials, cache poisoning. Findings show up as code scanning alerts in the Security tab.
+# Locally: `uvx zizmor .github/workflows`.
+on:
+  push:
+    branches: [main]
+    paths: [".github/**"]
+  pull_request:
+    paths: [".github/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zizmor:
+    name: Lint the workflows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
