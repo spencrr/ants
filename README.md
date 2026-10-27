@@ -26,6 +26,8 @@ Ants needs VS Code 1.141 or newer. Download `ants-<version>.vsix` from the [late
 code --install-extension ants-0.2.0.vsix
 ```
 
+It isn't on the Marketplace: the effort picker, context size and thinking use VS Code's proposed APIs, and the Marketplace doesn't take extensions that do. Each release comes with a `SHA256SUMS.txt` for the VSIX.
+
 To build it yourself, run `npm ci` and `npm run package`. To try changes without installing, open this folder in VS Code and press <kbd>F5</kbd>. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
 
 Then add the provider once: open **Manage Models...** from the chat model picker, click **Add Models**, choose **Claude (Console)**, give the group a name (your organization's, say) and leave the profile empty. The extension offers to take you there the first time it runs. Your Claude models then show up in the picker under that name. If they don't, Manage Models shows what went wrong.
@@ -69,7 +71,7 @@ The first setting takes effect right away. The Agents window reads the second on
 
 **Manage Models** lists each Claude model only once, under Claude (Console), even though agent sessions can use it too. Hiding a model there hides it everywhere.
 
-Copilot also has to allow bring-your-own-key models for your account. It always does for individual plans and for members of Microsoft's and GitHub's organizations. On other business plans, an admin has to allow it.
+Copilot also has to allow bring-your-own-key models for your account. Individual plans always do; on Business and Enterprise plans, an admin has to allow it in the organization's Copilot policies.
 
 ### Effort picker, context size, and thinking
 

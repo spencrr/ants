@@ -894,8 +894,8 @@ async function withoutProposedApi() {
 
 exports.run = async () => {
 	try {
-		// Copilot Chat sets this from the account's BYOK policy (always on for signed-out and internal
-		// users). VS Code checks it before handing extension models to agent sessions.
+		// Copilot Chat sets this from the account's BYOK policy, and leaves it on when nobody is
+		// signed in. VS Code checks it before handing extension models to agent sessions.
 		await vscode.commands.executeCommand('setContext', 'github.copilot.clientByokEnabled', true);
 		await (proposedApi ? withProposedApi() : withoutProposedApi());
 	} catch (error) {

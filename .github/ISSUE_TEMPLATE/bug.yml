@@ -1,0 +1,45 @@
+name: Bug report
+description: Something is wrong (sign-in, models missing, a request failing, agent sessions, the usage panel)
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      multiple: true
+      options: [Chat view, Copilot agent session, Agents window, Manage Models, Usage panel, Connection Status, Other]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "Ants (Extensions view) · VS Code (Help → About) · OS · how you signed in (`claude /login` or `ant auth login`)"
+      placeholder: Ants 0.2.0 · VS Code 1.143.1 · Windows 11 · claude /login
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Connection status
+      description: 'Output of **Ants: Connection Status**. Remove the organization, workspace and account lines if you would rather not share them.'
+      render: markdown
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: 'Relevant lines from the **Ants** output channel. It never contains tokens or prompt text.'
+      render: text

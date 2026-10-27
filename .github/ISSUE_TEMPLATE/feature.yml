@@ -1,0 +1,21 @@
+name: Feature request
+description: Something Ants should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task that led here, in your own words.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help?
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      multiple: true
+      options: [Chat view, Copilot agent sessions, Agents window, Manage Models, Usage panel, Sign-in and profiles, Other]

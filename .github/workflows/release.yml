@@ -39,8 +39,10 @@ jobs:
       - name: Release notes from the changelog
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          # The section for this version, without its heading.
-          awk -v v="$tag" '/^## \[/{p=index($0, "[" v "]")>0; if(p){next}} p && /^## /{exit} p' CHANGELOG.md > notes.md
+          # The section for this version, without its heading, and without the link definitions at the
+          # end of the file (the oldest section runs into those). Trailing blank lines go too.
+          awk -v v="$tag" '/^## \[/{p=index($0, "[" v "]")>0; if(p){next}} p && (/^## / || /^\[[^]]+\]: /){exit} p' CHANGELOG.md \
+            | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > notes.md
           [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
           printf '\n\nInstall the VSIX from the Extensions view (**...** → **Install from VSIX...**). `SHA256SUMS.txt` lists its digest.\n' >> notes.md
       - name: Create the GitHub Release
@@ -52,6 +54,6 @@ jobs:
             --notes-file notes.md \
             --verify-tag
 
-  # Marketplace publishing is off while the repository is private. When it is time:
-  #   `npx vsce publish --packagePath artifacts/*.vsix` with VSCE_PAT. Note that vsce refuses to publish an extension
-  #   with enabledApiProposals, so the proposals would have to move behind a separate build first.
+  # There is no Marketplace step: vsce refuses to publish an extension with enabledApiProposals, so the proposals
+  # would have to move behind a separate build first. When it is time:
+  #   `npx vsce publish --packagePath artifacts/*.vsix` with VSCE_PAT.
