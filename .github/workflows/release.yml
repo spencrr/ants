@@ -1,9 +1,12 @@
 name: Release
 
-# Cut a release with `node scripts/release.mjs <version>`, push main, wait for CI, then push the tag. Two jobs:
+# Cut a release with `node scripts/release.mjs <version>` and push the branch and the tag. Four stages:
 #
-#   build    runs the third-party build tooling (npm, tsc, biome, vsce) with a read-only token, after checking
-#            that the tagged commit is on main or a release/* branch, matches package.json, and has passed CI.
+#   check    the tag is on main or a release/* branch and matches package.json.
+#   checks   lint, typecheck and the end-to-end tests, from test.yml: the same steps CI runs on every
+#            commit, run again here so the release is tested in its own right rather than trusting
+#            an earlier run.
+#   build    the third-party build tooling (npm, vsce), with a read-only token.
 #   publish  runs no npm code at all. It takes the VSIX from the build job, attests how it was built, and
 #            creates the GitHub Release. It holds the only write token, and it waits in the `release`
 #            environment for the maintainer's approval first.
@@ -22,12 +25,11 @@ concurrency:
 permissions: {}
 
 jobs:
-  build:
-    name: Build the release
+  check:
+    name: Check the tag
     runs-on: ubuntu-latest
     permissions:
       contents: read # checkout
-      checks: read # to ask whether CI passed on the tagged commit
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,29 +43,30 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           v=$(node -p "require('./package.json').version")
           if [ "$v" != "$tag" ]; then echo "::error file=package.json::version $v does not match tag $tag"; exit 1; fi
-      - name: CI must have passed on this commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # CI runs on the push of the commit; the tag usually follows within minutes, so wait for it rather than fail.
-          for i in $(seq 1 80); do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=Build%20the%20VSIX&per_page=100" \
-              --jq '[.check_runs[] | select(.app.slug == "github-actions")] | if length == 0 then "missing" else (map(.conclusion // "pending") | if any(. == "success") then "success" elif any(. == "pending") then "pending" else .[0] end) end')
-            case "$state" in
-              success) echo "CI passed."; exit 0 ;;
-              pending|missing) echo "CI: $state, waiting..."; sleep 30 ;;
-              *) echo "::error::CI finished with '$state' on $GITHUB_SHA"; exit 1 ;;
-            esac
-          done
-          echo "::error::Gave up waiting for CI on $GITHUB_SHA"; exit 1
+
+  checks:
+    name: Checks
+    needs: check
+    uses: $/.github/workflows/test.yml
+    permissions:
+      contents: read
+
+  build:
+    name: Build the release
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # No npm cache here: a poisoned cache entry would end up inside the published VSIX.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           package-manager-cache: false
       - run: npm ci --ignore-scripts
-      - run: npm run lint
-      - run: npm run typecheck
       - name: Build the VSIX
         run: |
           mkdir -p artifacts

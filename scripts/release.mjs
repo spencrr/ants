@@ -2,7 +2,7 @@
 // biome-ignore-all lint/suspicious/noConsole: a release script reports what it does.
 /**
  * Bumps the version, moves the CHANGELOG's "Unreleased" section under the new version, commits and tags. Pushing the
- * tag starts .github/workflows/release.yml, which builds from the tagged commit once CI has passed on it.
+ * tag starts .github/workflows/release.yml, which tests and builds the tagged commit and then publishes it.
  *
  *   node scripts/release.mjs 0.2.0            # exact version
  *   node scripts/release.mjs patch|minor|major
@@ -90,9 +90,10 @@ git('commit', '-m', `Release ${next}`);
 git('tag', '-a', `v${next}`, '-m', `Ants ${next}`);
 const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
 console.log(
-	`\nCommitted and tagged v${next}. Push the branch, then the tag once CI is green (the release workflow waits for it anyway):\n` +
-		`  git push origin ${branch}\n  git push origin v${next}\n` +
-		'The release then waits for your approval in the "release" environment on GitHub.',
+	`\nCommitted and tagged v${next}. Push the branch and the tag:\n` +
+		`  git push origin ${branch} v${next}\n` +
+		'The release workflow runs the checks on the tagged commit, builds, and then waits for your approval in the\n' +
+		'"release" environment on GitHub.',
 );
 
 function bump(version, how) {

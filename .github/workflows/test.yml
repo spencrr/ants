@@ -1,0 +1,69 @@
+name: Test
+
+# The lint, typecheck and end-to-end test jobs, shared by ci.yml (every push and pull request) and
+# release.yml (every tag), so a release is tested by the same steps as any other commit.
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  lint:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout
+    steps:
+      # Nothing here pushes, so no job keeps the checkout's token around.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No npm cache in any job: a poisoned entry would end up in a VSIX, whether CI's artifact or a release.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      # No dependency needs an install script (see allowScripts in package.json); skipping them everywhere closes
+      # the usual npm supply-chain vector regardless of the runner's npm version.
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+      - run: npm run typecheck
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.image }}
+    permissions:
+      contents: read # checkout
+    strategy:
+      fail-fast: false
+      matrix:
+        # The tests run a real VS Code on the runner's desktop stack, so the image is part of what is
+        # tested. Pinned, so `-latest` moving to a new release doesn't change it under us; Dependabot
+        # doesn't track these, so bump them by hand when the matching VS Code works there.
+        include:
+          - os: ubuntu-latest
+            image: ubuntu-26.04
+          - os: windows-latest
+            image: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      # The test starts a real VS Code, which needs a display on Linux.
+      - run: xvfb-run -a npm test
+        if: runner.os == 'Linux'
+      - run: npm test
+        if: runner.os != 'Linux'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: test-logs-${{ matrix.os }}-${{ github.run_id }}
+          path: |
+            test/.scratch/results.log
+            test/.scratch/portable*/user-data/logs/
+          retention-days: 7
