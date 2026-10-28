@@ -2,13 +2,12 @@ name: zizmor
 
 # Static analysis of the workflows in this folder: unpinned actions, template injection, kept
 # credentials, cache poisoning. Findings show up as code scanning alerts in the Security tab.
-# Locally: `uvx zizmor .github/workflows`.
+# Locally: `uvx zizmor .github/workflows`. Runs on every push and pull request, not only on
+# changes under .github/, because it is a required check and a check that doesn't run blocks the merge.
 on:
   push:
-    branches: [main]
-    paths: [".github/**"]
+    branches: [main, "release/*"]
   pull_request:
-    paths: [".github/**"]
   workflow_dispatch:
 
 # A newer run on the same branch supersedes an older one.
