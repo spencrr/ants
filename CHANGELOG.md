@@ -4,6 +4,9 @@ All notable changes to Ants are recorded here. The format follows [Keep a Change
 
 ## Unreleased
 
+### Changed
+- Releases run the full test suite on the tagged commit before building, instead of relying on an earlier CI run. Nothing changes in the extension itself.
+
 ## [0.2.2] - 2026-10-28
 
 ### Changed
