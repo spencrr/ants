@@ -2,7 +2,7 @@
   "name": "ants",
   "displayName": "Ants",
   "description": "Claude in VS Code chat and Copilot agent sessions, through your Anthropic Console sign-in. No API key.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "spencrr",
   "license": "MIT",
   "private": true,

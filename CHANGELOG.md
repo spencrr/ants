@@ -4,6 +4,8 @@ All notable changes to Ants are recorded here. The format follows [Keep a Change
 
 ## Unreleased
 
+## [0.2.1] - 2026-10-28
+
 ### Fixed
 - CSV export marks cells a spreadsheet would otherwise read as a formula as text.
 - Token counts the API reports as anything other than a number are counted as none, rather than passed on.
@@ -39,5 +41,7 @@ First release.
 
 [0.1.0]: https://github.com/spencrr/ants/releases/tag/v0.1.0
 
-[unreleased]: https://github.com/spencrr/ants/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/spencrr/ants/compare/v0.1.0...v0.2.0
+
+[unreleased]: https://github.com/spencrr/ants/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/spencrr/ants/compare/v0.2.0...v0.2.1
