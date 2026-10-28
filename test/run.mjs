@@ -318,8 +318,8 @@ const server = http.createServer(async (req, res) => {
 	json(res, 404, { type: 'error', error: { type: 'not_found_error', message: `No route for ${url.pathname}` } });
 });
 
-// Stages the extension under test in scratch/ext: either the compiled out/ with the real
-// node_modules linked in, or the unpacked VSIX.
+// Stages the extension under test in scratch/ext: either the bundled out/ on its own (the bundle
+// has to carry everything the extension needs; no node_modules are linked in), or the unpacked VSIX.
 function stageExtension(ext) {
 	fs.rmSync(ext, { recursive: true, force: true });
 	if (process.argv.includes('--vsix')) {
@@ -340,10 +340,12 @@ function stageExtension(ext) {
 	} else {
 		fs.mkdirSync(ext, { recursive: true });
 		fs.cpSync(path.join(root, 'out'), path.join(ext, 'out'), { recursive: true });
-		fs.symlinkSync(path.join(root, 'node_modules'), path.join(ext, 'node_modules'), 'junction');
+		fs.cpSync(path.join(root, 'media'), path.join(ext, 'media'), { recursive: true });
 	}
 	fs.mkdirSync(path.join(ext, 'test'), { recursive: true });
 	fs.copyFileSync(path.join(here, 'suite.js'), path.join(ext, 'test', 'suite.js'));
+	// The suite checks the CSV export directly; the VSIX doesn't carry this module, so it comes from out/.
+	fs.copyFileSync(path.join(root, 'out', 'usageLog.js'), path.join(ext, 'test', 'usageLog.js'));
 }
 
 async function main() {

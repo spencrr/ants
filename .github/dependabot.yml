@@ -9,7 +9,7 @@ updates:
       default-days: 7
     groups:
       dev-tooling:
-        patterns: ["@biomejs/*", "typescript", "@types/*", "@vscode/*", "lefthook"]
+        patterns: ["@biomejs/*", "typescript", "@types/*", "@vscode/*", "lefthook", "esbuild"]
         # Majors of the tooling are taken deliberately, one at a time.
         update-types: ["minor", "patch"]
     ignore:

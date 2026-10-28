@@ -4,6 +4,9 @@ All notable changes to Ants are recorded here. The format follows [Keep a Change
 
 ## Unreleased
 
+### Changed
+- The extension ships as one bundled file. The VSIX went from 711 files to 10 and from 857 KB to 209 KB, and VS Code loads a single module at startup instead of several hundred. Nothing changes in what it does.
+
 ## [0.2.1] - 2026-10-28
 
 ### Fixed

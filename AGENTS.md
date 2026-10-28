@@ -9,10 +9,12 @@ You're working on **Ants**: a VS Code extension that offers the user's Anthropic
 ```
 npm ci                         # Node >= 22.13; installs the git hooks (lefthook)
 npm run check                  # typecheck + lint + test: run before finishing
-npm run typecheck              # tsc --noEmit
+npm run typecheck              # tsc --noEmit (types only; esbuild does the building)
 npm run lint                   # Biome (lint + format + import order); `npm run lint:fix` applies safe fixes
+npm run compile                # esbuild: src + the SDK -> out/extension.js; `npm run watch` rebuilds on change
 npm test                       # compiles, then runs test/run.mjs in a real VS Code against a fake Anthropic API
 npm run package                # ants-<version>.vsix; `npm run test:vsix` tests that file instead of out/
+npm run vsix:ls                # what the VSIX would contain (should be about ten files)
 npm run proposed-api           # re-downloads vscode.proposed.*.d.ts for the VS Code version named in the script
 node scripts/release.mjs 0.2.0 # version bump + CHANGELOG + commit + tag; push the branch, then the tag (runs release.yml)
 ```
@@ -21,7 +23,7 @@ The test downloads VS Code into `.vscode-test/` on first run (on Linux, run it u
 
 ## Architecture
 
-One TypeScript package, compiled with `tsc` to `out/` (CommonJS, `module: node16`), no bundler. The VSIX carries `node_modules/@anthropic-ai/sdk` with its ESM build, types and sources trimmed by `.vscodeignore`.
+One TypeScript package. `esbuild.mjs` bundles `src/extension.ts` and everything it imports, the Anthropic SDK included, into `out/extension.js` (CommonJS, Node 22 target, `vscode` external, with a source map); `tsc` only checks types. The VSIX is that file plus `media/`, the manifest, and the docs: about ten files, no `node_modules`. The test runner stages `out/` without linking `node_modules` in, so a dependency the bundle missed fails the tests rather than the user. `out/usageLog.js` is a second, test-only entry point for the CSV check.
 
 - `src/extension.ts`: `activate` and the `LanguageModelChatProvider`. Keeps one `Connection` (SDK client + resolved profile + identity) per profile the groups name, lists models from `/v1/models`, converts VS Code chat messages to the Messages API, streams text, thinking and tool calls back, reports usage, appends to the log. `effortSetting` and `contextSizeSetting` build the pickers.
 - `src/identity.ts`: `anthropicConfigDir`, `activeProfileName` (the SDK's documented order: `ANTHROPIC_PROFILE`, `active_config`, `default`), `profilesOnDisk`, and `identityOf`, which reads the organization and workspace ids with the SDK's own `loadConfig` and the names from `GET /api/oauth/profile` (the endpoint Claude Code uses; undocumented, so a failure only means "no name"). `credentialsSavedAt` is the credentials file's mtime, never its contents.
@@ -45,7 +47,7 @@ One TypeScript package, compiled with `tsc` to `out/` (CommonJS, `module: node16
 
 ## Conventions
 
-- Tabs, single quotes, 120 columns, LF, UTF-8 (`.editorconfig`, Biome). Relative imports carry the `.js` suffix they compile to; `import type` for type-only imports. JSON files use two spaces because npm rewrites `package.json` that way.
+- Tabs, single quotes, 120 columns, LF, UTF-8 (`.editorconfig`, Biome). Relative imports carry the `.js` suffix (`module: node16` resolution; esbuild maps them back to the sources); `import type` for type-only imports. JSON files use two spaces because npm rewrites `package.json` that way.
 - Every stable Biome group is on. Disabled rules are listed in `biome.jsonc` with a reason each. Suppress inline only per file or line with a reason (`// biome-ignore <rule>: why`); never silence a rule globally to make a finding go away. Review every `--unsafe` fix: it changes semantics.
 - Prose, comments and error messages read like a person wrote them: short sentences, no jargon that the reader would not use, no exclamation marks. Comment only what needs explaining.
 - `engines.vscode` is `^1.141.0`: Manage Models groups need 1.109 and the agent-session bridge 1.141, and the suite only ever runs on the current stable, so the floor stays close to it rather than claiming versions nobody tests. `@types/vscode` is the newest published at or below the floor (it lags VS Code by a release or two), and the proposed-API typings track the current VS Code (1.143, `npm run proposed-api`). Move all three together.

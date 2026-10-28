@@ -18,12 +18,7 @@ AGENTS.md
 CONTRIBUTING.md
 SECURITY.md
 
-# The extension loads the SDK's CommonJS build, so leave out its ES modules, types, and sources.
-node_modules/**/*.mjs
-node_modules/**/*.d.ts
-node_modules/**/*.d.mts
-node_modules/**/*.map
-node_modules/@anthropic-ai/sdk/src/**
-# Type-level only; the SDK's CommonJS build never requires it.
-node_modules/json-schema-to-ts/**
-node_modules/ts-algebra/**
+# Everything the extension runs is bundled into out/extension.js, so no dependency ships on its own.
+node_modules/**
+out/usageLog.js*
+esbuild.mjs

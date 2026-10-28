@@ -495,7 +495,7 @@ async function withProposedApi() {
 		return last?.model === 'claude-haiku-5-5' ? last : undefined;
 	}, 'the usage record');
 	assert.ok(priced.cost > 0 && priced.cost < 0.001, `Haiku 5.5 is priced: ${priced.cost}`);
-	const { toCsv } = require('../out/usageLog.js');
+	const { toCsv } = require('./usageLog.js');
 	assert.deepStrictEqual(toCsv([recorded, priced]).split('\r\n').length, 3);
 	assert.match(
 		toCsv([{ ...priced, organization: 'Test, Inc.' }]).split('\r\n')[1],

@@ -88,8 +88,8 @@
     ]
   },
   "scripts": {
-    "compile": "tsc -p .",
-    "watch": "tsc -watch -p .",
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc -p . --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
@@ -97,6 +97,7 @@
     "test": "npm run compile && node test/run.mjs",
     "test:vsix": "node test/run.mjs --vsix",
     "check": "npm run typecheck && npm run lint && npm test",
+    "vsix:ls": "vsce ls",
     "package": "vsce package",
     "proposed-api": "vscode-dts dev 1.143.0",
     "vscode:prepublish": "npm run compile",
@@ -112,11 +113,13 @@
     "@vscode/dts": "^0.4.1",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
     "lefthook": "^2.2.2",
     "typescript": "^7.0.2"
   },
   "allowScripts": {
     "@vscode/vsce-sign": false,
+    "esbuild": false,
     "keytar": false,
     "lefthook": false
   }
