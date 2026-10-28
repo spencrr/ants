@@ -36,11 +36,18 @@ jobs:
 
   test:
     name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.image }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # The tests run a real VS Code on the runner's desktop stack, so the image is part of what is
+        # tested. Pinned, so `-latest` moving to a new release doesn't change it under us; Dependabot
+        # doesn't track these, so bump them by hand when the matching VS Code works there.
+        include:
+          - os: ubuntu-latest
+            image: ubuntu-26.04
+          - os: windows-latest
+            image: windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
