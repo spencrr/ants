@@ -116,34 +116,45 @@ async function describe(entry: ProfileStatus): Promise<string[]> {
 	}
 
 	if (identity?.source === 'environment') {
-		lines.push(`- **Sign-in:** ${identity.note}`, `- **API:** ${identity.baseURL}`);
+		lines.push(`- **Sign-in:** ${plain(identity.note ?? '')}`, `- **API:** ${code(identity.baseURL)}`);
 	} else if (identity) {
 		const org = identity.organizationName
-			? `${identity.organizationName}${identity.organizationId ? ` (${code(identity.organizationId)})` : ''}`
+			? `${plain(identity.organizationName)}${identity.organizationId ? ` (${code(identity.organizationId)})` : ''}`
 			: identity.organizationId
 				? code(identity.organizationId)
 				: 'unknown';
 		const saved = profile ? await credentialsSavedAt(profile) : undefined;
-		const auth = identity.authType ? (AUTH_TYPES[identity.authType] ?? identity.authType) : 'unknown';
+		const auth = identity.authType ? (AUTH_TYPES[identity.authType] ?? plain(identity.authType)) : 'unknown';
 		lines.push(
 			`- **Organization:** ${org}`,
 			`- **Workspace:** ${identity.workspaceId ? code(identity.workspaceId) : 'the organization default'}`,
-			`- **Account:** ${identity.account ?? 'unknown'}`,
+			`- **Account:** ${identity.account ? plain(identity.account) : 'unknown'}`,
 			`- **Sign-in:** ${auth}${saved ? `; credentials last saved ${when(saved)} (the sign-in, or the last token refresh)` : ''}`,
-			`- **API:** ${identity.baseURL}`,
+			`- **API:** ${code(identity.baseURL)}`,
 		);
 		if (identity.note) {
-			lines.push(`- **Note:** ${identity.note}`);
+			lines.push(`- **Note:** ${plain(identity.note)}`);
 		}
 	} else {
 		lines.push('- Not connected yet: no call through it has succeeded.');
 	}
-	lines.push(`- **Last error:** ${entry.lastError ?? 'none'}`);
+	lines.push(`- **Last error:** ${entry.lastError ? plain(entry.lastError) : 'none'}`);
 	return lines;
 }
 
+/**
+ * Text from outside (the API's names for things, error messages) shown as nothing but text: on one
+ * line, cut to a sensible length, with every character Markdown would otherwise act on escaped.
+ */
+function plain(value: string) {
+	const oneLine = value.replace(/\s+/g, ' ').trim();
+	const cut = oneLine.length > 200 ? `${oneLine.slice(0, 199)}…` : oneLine;
+	return cut.replace(/[\\`*_{}[\]()#+\-!<>|~]/g, '\\$&');
+}
+
+/** An identifier or path in a code span, which can't contain the backtick that would end it. */
 function code(value: string) {
-	return `\`${value}\``;
+	return `\`${value.replace(/[`\r\n]/g, '').slice(0, 200)}\``;
 }
 
 function when(date: Date) {

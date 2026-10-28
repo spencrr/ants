@@ -185,13 +185,24 @@ const server = http.createServer(async (req, res) => {
 	}
 
 	// Who the token belongs to, the way Claude Code asks. Each workspace is in its own organization.
+	// The "odd" workspace has names that read like Markdown, to check they are shown as text.
 	if (url.pathname === '/api/oauth/profile') {
-		const other = req.headers['anthropic-workspace-id'] === 'wrkspc_other';
+		const workspace = req.headers['anthropic-workspace-id'];
+		const other = workspace === 'wrkspc_other';
+		const odd = workspace === 'wrkspc_odd';
 		return json(res, 200, {
-			account: { uuid: 'acct_test', email: other ? 'me@other.example' : 'me@test.example', display_name: 'Me' },
+			account: {
+				uuid: 'acct_test',
+				email: odd ? '[me](https://evil.example)' : other ? 'me@other.example' : 'me@test.example',
+				display_name: 'Me',
+			},
 			organization: {
 				uuid: other ? '11111111-1111-1111-1111-111111111111' : '00000000-0000-0000-0000-000000000000',
-				name: other ? 'Other Org' : 'Test Org',
+				name: odd
+					? 'Acme\n\n> Sign in again <img src="https://evil.example/x">'
+					: other
+						? 'Other Org'
+						: 'Test Org',
 				organization_type: 'api_team',
 				billing_type: 'usage_based',
 			},

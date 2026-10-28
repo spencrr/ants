@@ -912,7 +912,33 @@ async function withoutProposedApi() {
 	assert.strictEqual((await sentMessages()).at(-1).headers.authorization, `Bearer ${tokenOf('other')}`);
 	log('ok - a group with a named profile works without the proposed APIs too');
 
-	await expectAgentSessionsToOfferModels('Claude Test, Claude Haiku 5.5, Claude Small, Claude Test, Claude Other');
+	// Names the API hands back are shown as text on the status page, however they are shaped.
+	writeProfile(
+		{ access_token: 'sk-ant-oat01-odd', refresh_token: 'refresh-odd', expires_at: now() + 3600 },
+		{ name: 'odd', workspace: 'wrkspc_odd' },
+	);
+	fs.writeFileSync(
+		groupsFile,
+		JSON.stringify([
+			{ name: 'My org', vendor: 'ants' },
+			{ name: 'Other org', vendor: 'ants', profile: 'other' },
+			{ name: 'Odd org', vendor: 'ants', profile: 'odd' },
+		]),
+	);
+	const oddStatus = await waitFor(async () => {
+		const report = await vscode.commands.executeCommand('ants.showStatus');
+		return /^## Profile `odd`$/m.test(report) && /Organization:\*\* Acme/.test(report) ? report : undefined;
+	}, 'the odd profile on the status page');
+	assert.match(
+		oddStatus,
+		/^- \*\*Organization:\*\* Acme \\> Sign in again \\<img src="https:\/\/evil\.example\/x"\\> \(`00000000-0000-0000-0000-000000000000`\)$/m,
+	);
+	assert.match(oddStatus, /^- \*\*Account:\*\* \\\[me\\\]\\\(https:\/\/evil\.example\\\)$/m);
+	log('ok - the status page shows names from the API as plain text');
+
+	await expectAgentSessionsToOfferModels(
+		'Claude Test, Claude Haiku 5.5, Claude Small, Claude Test, Claude Other, Claude Test, Claude Haiku 5.5, Claude Small',
+	);
 }
 
 exports.run = async () => {
