@@ -4,6 +4,8 @@ All notable changes to Ants are recorded here. The format follows [Keep a Change
 
 ## Unreleased
 
+## [0.2.3] - 2026-10-28
+
 ### Changed
 - Releases run the full test suite on the tagged commit before building, instead of relying on an earlier CI run. Nothing changes in the extension itself.
 
@@ -53,5 +55,7 @@ First release.
 
 [0.2.1]: https://github.com/spencrr/ants/compare/v0.2.0...v0.2.1
 
-[unreleased]: https://github.com/spencrr/ants/compare/v0.2.2...HEAD
 [0.2.2]: https://github.com/spencrr/ants/compare/v0.2.1...v0.2.2
+
+[unreleased]: https://github.com/spencrr/ants/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/spencrr/ants/compare/v0.2.2...v0.2.3
