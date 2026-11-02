@@ -107,7 +107,7 @@
     "@anthropic-ai/sdk": "^0.137.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.3",
     "@types/node": "^22.13.0",
     "@types/vscode": "~1.140.0",
     "@vscode/dts": "^0.4.1",
