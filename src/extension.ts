@@ -19,6 +19,53 @@ const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 /** What a request that never got an answer used, as far as anyone knows. */
 const NO_TOKENS = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
 
+/**
+ * When the pieces of a reply arrived, for the log. Summarized thinking comes from the API in
+ * bursts, one per summarized segment, the last of them together with the end of the block. So
+ * when thinking seems to appear all at once in chat, this says whether that is how it was sent.
+ */
+interface Timeline {
+	readonly started: number;
+	/** When each burst of thinking began. Deltas within a burst arrive together; a pause means a new segment. */
+	readonly thinkingBursts: number[];
+	lastThinkingAt?: number;
+	thinkingEndedAt?: number;
+	firstTextAt?: number;
+}
+
+function newTimeline(): Timeline {
+	return { started: Date.now(), thinkingBursts: [] };
+}
+
+function noteThinking(timeline: Timeline) {
+	const now = Date.now();
+	if (timeline.lastThinkingAt === undefined || now - timeline.lastThinkingAt > 500) {
+		timeline.thinkingBursts.push(now);
+	}
+	timeline.lastThinkingAt = now;
+}
+
+/** One line for the log, like "thinking in 3 bursts (+2.7s +5.1s +9.0s), thinking ended +9.1s, text from +9.2s". */
+function describeTimeline(timeline: Timeline): string {
+	const at = (time: number) => `+${((time - timeline.started) / 1000).toFixed(1)}s`;
+	const parts: string[] = [];
+	const bursts = timeline.thinkingBursts;
+	if (bursts.length > 0) {
+		const times =
+			bursts.length > 6
+				? `${bursts.slice(0, 5).map(at).join(' ')} … ${at(bursts.at(-1) as number)}`
+				: bursts.map(at).join(' ');
+		parts.push(`thinking in ${bursts.length} burst${bursts.length === 1 ? '' : 's'} (${times})`);
+	}
+	if (timeline.thinkingEndedAt !== undefined) {
+		parts.push(`thinking ended ${at(timeline.thinkingEndedAt)}`);
+	}
+	if (timeline.firstTextAt !== undefined) {
+		parts.push(`text from ${at(timeline.firstTextAt)}`);
+	}
+	return parts.join(', ');
+}
+
 /** A model as VS Code sees it, plus what this extension offers for it. */
 interface ClaudeModel extends vscode.LanguageModelChatInformation {
 	/** Effort levels offered in the model picker. */
@@ -292,9 +339,10 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		};
 		let connection: Connection | undefined;
 		let reply: Anthropic.Message;
+		const timeline = newTimeline();
 		try {
 			connection = await this.connect(model.profile);
-			reply = await this.streamWithRetry(connection.client, body, progress, token);
+			reply = await this.streamWithRetry(connection.client, body, progress, token, timeline);
 		} catch (error) {
 			if (token.isCancellationRequested) {
 				// The user stopped the reply before anything arrived; nothing is wrong with the sign-in.
@@ -346,6 +394,10 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		this.log.info(
 			`${model.id}${model.profile ? ` [${model.profile}]` : ''}${effort ? ` (${effort} effort)` : ''}: ${seconds}s, ${promptTokens} tokens in (${cachedTokens} cached), ${tokenCounts.output} out${cutOff}${cost ? `, about $${cost.toFixed(cost < 0.1 ? 3 : 2)}` : ''}`,
 		);
+		const arrived = describeTimeline(timeline);
+		if (arrived) {
+			this.log.debug(`${model.id}: ${arrived}`);
+		}
 		this.record(request, started, undefined, tokenCounts, await this.worked(connection, model.profile));
 	}
 
@@ -377,9 +429,10 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		body: Anthropic.MessageStreamParams,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart2>,
 		token: vscode.CancellationToken,
+		timeline: Timeline,
 	): Promise<Anthropic.Message> {
 		try {
-			return await this.stream(client, body, progress, token);
+			return await this.stream(client, body, progress, token, timeline);
 		} catch (error) {
 			const refusedThinking = error instanceof Anthropic.BadRequestError && /thinking/i.test(error.message);
 			if (!(refusedThinking && body.messages.some(hasThinking))) {
@@ -388,7 +441,13 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 			// The newest models only accept earlier thinking while everything before it is unchanged,
 			// and chat sometimes rewrites earlier turns, for example when it summarizes a long session.
 			this.log.warn(`Retrying without earlier thinking, which Claude refused: ${messageOf(error)}`);
-			return this.stream(client, { ...body, messages: withoutThinking(body.messages) }, progress, token);
+			return this.stream(
+				client,
+				{ ...body, messages: withoutThinking(body.messages) },
+				progress,
+				token,
+				timeline,
+			);
 		}
 	}
 
@@ -401,6 +460,7 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		body: Anthropic.MessageStreamParams,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart2>,
 		token: vscode.CancellationToken,
+		timeline: Timeline,
 	): Promise<Anthropic.Message> {
 		const stream = client.messages.stream(body);
 		token.onCancellationRequested(() => stream.abort());
@@ -410,18 +470,21 @@ class ClaudeChatProvider implements vscode.LanguageModelChatProvider<ClaudeModel
 		stream.on('streamEvent', (event, reply) => {
 			soFar = reply;
 			if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+				timeline.firstTextAt ??= Date.now();
 				streamed += event.delta.text.length;
 				progress.report(new vscode.LanguageModelTextPart(event.delta.text));
-			} else if (
-				event.type === 'content_block_delta' &&
-				event.delta.type === 'thinking_delta' &&
-				this.useProposedApi
-			) {
-				progress.report(
-					new vscode.LanguageModelThinkingPart(event.delta.thinking, `${reply.id}/${event.index}`),
-				);
+			} else if (event.type === 'content_block_delta' && event.delta.type === 'thinking_delta') {
+				noteThinking(timeline);
+				if (this.useProposedApi) {
+					progress.report(
+						new vscode.LanguageModelThinkingPart(event.delta.thinking, `${reply.id}/${event.index}`),
+					);
+				}
 			} else if (event.type === 'content_block_stop') {
 				const block = reply.content[event.index];
+				if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+					timeline.thinkingEndedAt ??= Date.now();
+				}
 				if (block.type === 'tool_use') {
 					progress.report(new vscode.LanguageModelToolCallPart(block.id, block.name, block.input as object));
 				} else if ((block.type === 'thinking' || block.type === 'redacted_thinking') && this.useProposedApi) {

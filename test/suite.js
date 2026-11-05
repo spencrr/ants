@@ -409,6 +409,17 @@ async function withProposedApi() {
 	);
 	log('ok - streams thinking (text, then the signed block), redacted thinking, text, and a tool call');
 
+	// The log says when the thinking and the text arrived, so a reply whose thinking shows up all at
+	// once can be told apart from one the API streamed. The fake sends everything in one go.
+	assert.match(
+		await waitFor(
+			() => antsLog().match(/claude-test-1: thinking in 1 burst \(\+[\d.]+s\)[^\r\n]*/)?.[0],
+			'the timeline',
+		),
+		/thinking ended \+[\d.]+s, text from \+[\d.]+s$/,
+	);
+	log('ok - the log notes when thinking and text arrived');
+
 	assert.deepStrictEqual(replyA.usage, {
 		prompt_tokens: 1110,
 		completion_tokens: 42,

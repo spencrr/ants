@@ -4,6 +4,9 @@ All notable changes to Ants are recorded here. The format follows [Keep a Change
 
 ## Unreleased
 
+### Added
+- With the Ants output channel set to Debug, each reply gets a line saying when its thinking arrived (in how many bursts, and when) and when its text began. Anthropic sends summarized thinking a segment at a time, so short thinking shows up all at once; the line tells that apart from a delay anywhere else.
+
 ## [0.2.3] - 2026-10-28
 
 ### Changed

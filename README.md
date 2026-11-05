@@ -105,7 +105,7 @@ Everything in `src/` is small: `extension.ts` is the model provider, `identity.t
 
 - It lists your models from `/v1/models`, once per group in Manage Models, along with their context windows and which effort levels and kinds of thinking each one supports. Each group names an Anthropic profile, and VS Code keeps the groups apart (`ants/<group>/<model>`).
 - It converts VS Code chat messages (system prompt, earlier thinking, tool calls and results, images) to the Messages API format.
-- It streams text, thinking, and tool calls back, then reports token usage so chat can show how full the context is.
+- It streams text, thinking, and tool calls back, then reports token usage so chat can show how full the context is. The thinking you see is Anthropic's summary of it, and the API sends that summary a segment at a time, with the last segment arriving together with the end of the thinking, so short thinking tends to show up all at once. With the Ants output channel set to Debug, each reply gets a line saying when its thinking and text arrived.
 - It turns on prompt caching, since agent mode resends the whole conversation every turn.
 
 VS Code hands models from extensions to Copilot agent sessions through a small local bridge to whichever window runs this extension, so the same provider serves chat and agent sessions.
